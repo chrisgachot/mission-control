@@ -1,0 +1,32 @@
+{
+  "name": "mission-control",
+  "version": "0.1.0",
+  "private": true,
+  "description": "One private dashboard for everything your AI agents are doing, across Claude Code, Cowork, Claude chat, Duet and ChatGPT.",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build:web && wrangler dev",
+    "build": "npm run build:web",
+    "build:web": "node scripts/build-web.mjs",
+    "deploy": "npm run build:web && wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply DB --local",
+    "seed:local": "node scripts/seed.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@simplewebauthn/server": "^14.0.3",
+    "hono": "^4.13.14",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.11",
+    "@cloudflare/workers-types": "^5.20261031.1",
+    "@simplewebauthn/browser": "^14.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.156.0"
+  }
+}

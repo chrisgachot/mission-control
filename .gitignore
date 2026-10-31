@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+dist/
+public/app.js
+public/app.js.map
+public/vault-worker.js
+.dev.vars
+*.log
+.dev.vars*
