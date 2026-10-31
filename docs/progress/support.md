@@ -2,6 +2,33 @@
 
 Newest first. Mark uncertainty with ?.
 
+## Wave 2: tests
+
+Integration tests under `test/`, run with `npx vitest run`. Result: 8 files, 97 tests, all passing (76 new, 21 existing). `npx tsc --noEmit -p test/tsconfig.json` is clean. Two runs in a row gave the same result. No file outside `test/` was touched (`docs/progress/support.md` is the only exception, as the task asked).
+
+New files and counts:
+- `test/helpers.ts`: fixtures. `seedSpace()` (owner, live session, space key from a real P-256 pair, connector token, two projects), `addUser`, `addMemberToken`, `sealFor`/`openField` (envelopes), `apiFetch` (adds the cookie and `X-Requested-With`), `mcpRpc`/`mcpCall`/`callTool` (tools/call unwrapped to `{ isError, data }`), `resetDb()`.
+- `test/mcp.test.ts` (18): token 401, revoked 401, GET 405, initialize instructions, the six tools, list_projects, report_started (encrypted title, idempotent external_id, unknown project, empty title), milestone/waiting/done, unknown id as a tool error (HTTP 200), archived id, find_workstreams filters and LIKE escaping.
+- `test/board.test.ts` (8): local slice, derived status, latestUpdate, titles decrypt, 7 daily buckets with per-tool counts, 24h/30d lengths, bad range 400, no cookie 401, backdated 8 days gives `stale`, snoozed stays `waiting`.
+- `test/actions.test.ts` (15): all five actions against ARCHITECTURE §2 (timestamps, snooze = now + 24h, resume clears snooze and refreshes last_agent_at, reopen from done and archived), 409 on disallowed transitions, 404, 400, missing and wrong `X-Requested-With` 403, timeline with the person's "Handled" update.
+- `test/projects.test.ts` (12): list, create (201), trim, duplicate name case-insensitive 409, empty name 400, member 403, missing header 403, archive hides from list_projects and report_started, unarchive restores, PATCH on unknown id 404, empty patch 400.
+- `test/setup.test.ts` (7): first GET mints a full URL, second GET masked with the same createdAt, only the hash is stored, rotate returns a new URL, old token 401, new token works, rotate without header 403.
+- `test/remote.test.ts` (16): member bearer on /space and /projects, wrong/missing/malformed/revoked/removed-user bearer 401, started then milestone on the same source_id (same workstream, 2 updates), duplicate started idempotent, ingest works without `X-Requested-With` (exempt), unknown key_id 400 `unknown_key`, kid mismatch 400 `bad_envelope`, unknown project 404, milestone with no started 409, /board slice.
+
+Approach and decisions:
+- Sessions and tokens are seeded directly into D1. The dev bypass only applies to localhost, and the tests use `mission-control.test`, so no `vitest.config.ts` change was needed.
+- Hashes (session id, connector and member token hashes) are computed in `test/helpers.ts` with WebCrypto, not imported from `src`. That way a wrong hashing scheme in `src` fails the tests instead of matching on both sides.
+- `resetDb()` deletes rows from every table in `beforeEach`. I did not rely on the plugin's storage isolation. This is test-DB only and deletes no files.
+- Remote tests play the personal copy by sealing envelopes to the shared key and calling `/api/remote/*` directly, which is what `src/forward.ts` sends. `forwardEvent` itself, and the MCP-to-shared-space path, are NOT exercised end to end.
+
+Bugs: none found in the paths covered. No `it.fails` or skips were needed.
+
+Not covered (outside the Wave 2 list): `src/api/auth.ts`, `keys.ts`, `invites.ts`, `members.ts`, `remote-spaces.ts`, `src/forward.ts` end to end, the dashboard.
+
+Unsure (`?`):
+- Test output prints "Using secrets defined in .dev.vars", but there is no `.dev.vars` in the repo root. I did not check where the plugin reads it. The tests never hit localhost, so the bypass should not apply.
+- The `last_used_at` assertion polls for up to 1 s because `touchConnectorToken` runs in `waitUntil`. It is not flaky in two runs, but it is timing-dependent.
+
 ## 2026-10-31 (Support worker, session 1)
 
 Done:
