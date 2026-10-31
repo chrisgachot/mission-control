@@ -1,0 +1,120 @@
+# Keeps this copy of Mission Control on the newest tagged release of the upstream project.
+#
+# Once a day (and on demand) it looks for the highest vX.Y.Z tag in upstream, and if that tag is
+# ahead of `main` it fast-forwards `main` to it and pushes. The push makes Workers Builds
+# redeploy. If the history cannot be fast-forwarded it stops with a red run and changes nothing
+# (unless the repository variable SYNC_ALLOW_MERGE is "true", which allows a clean merge).
+#
+# To turn automatic updates off: GitHub > Actions > "Sync upstream release" > ... > Disable workflow.
+# See docs/UPDATES.md.
+
+name: Sync upstream release
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+# contents: push main. actions: start the health check afterwards (see the last step).
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: sync-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_URL: https://github.com/chrisgachot/mission-control.git
+
+jobs:
+  sync:
+    # The upstream project itself has nothing to sync from.
+    if: github.repository != 'chrisgachot/mission-control'
+    runs-on: ubuntu-latest
+    env:
+      HAVE_SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+      # Optional repository variable. Off by default: only a clean fast-forward is applied.
+      ALLOW_MERGE: ${{ vars.SYNC_ALLOW_MERGE }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          # Optional: a personal access token with the `workflow` scope, saved as the repository
+          # secret SYNC_TOKEN. Only needed if a release changes files under .github/workflows,
+          # which the built-in GITHUB_TOKEN is not allowed to push.
+          token: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Fetch upstream tags
+        run: |
+          git remote add upstream "$UPSTREAM_URL" 2>/dev/null || git remote set-url upstream "$UPSTREAM_URL"
+          git fetch upstream --no-tags '+refs/tags/v*:refs/tags/v*'
+
+      - name: Fast-forward main to the newest release tag
+        id: ff
+        shell: bash
+        run: |
+          tag="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n 1p || true)"
+          if [ -z "$tag" ]; then
+            echo "No vX.Y.Z tags found in upstream yet. Nothing to do."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          head="$(git rev-parse HEAD)"
+          target="$(git rev-parse "${tag}^{commit}")"
+          echo "Newest upstream release: $tag ($target)"
+          echo "This copy's main:        $head"
+
+          if [ "$head" = "$target" ]; then
+            echo "Already on $tag."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git merge-base --is-ancestor "$target" "$head"; then
+            echo "main already contains $tag (this copy is ahead of it). Nothing to do."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          can_ff=true
+          git merge-base --is-ancestor "$head" "$target" || can_ff=false
+
+          if [ "$can_ff" = false ] && [ "$ALLOW_MERGE" != "true" ]; then
+            echo "::error::Cannot fast-forward main to $tag: this copy has commits upstream does not (or a different history). Nothing was changed and no pull request was opened. See docs/UPDATES.md (to allow a merge instead, set the repository variable SYNC_ALLOW_MERGE to true)."
+            exit 1
+          fi
+
+          changed="$(git diff --name-only "$head" "$target")"
+          if [[ $'\n'"$changed" == *$'\n.github/workflows/'* && -z "$HAVE_SYNC_TOKEN" ]]; then
+            echo "::error::$tag changes files under .github/workflows, which the built-in GITHUB_TOKEN cannot push. Add a SYNC_TOKEN secret (personal access token with the workflow scope) or update by hand. Nothing was changed. See docs/UPDATES.md."
+            exit 1
+          fi
+
+          if [ "$can_ff" = true ]; then
+            git merge --ff-only "$target"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            if ! git merge --no-edit "$target"; then
+              git merge --abort
+              echo "::error::Merging $tag into main conflicts with local changes. Nothing was changed. Resolve it by hand. See docs/UPDATES.md."
+              exit 1
+            fi
+          fi
+
+          git push origin HEAD:main
+          echo "Updated main to $tag."
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # Pushes made with GITHUB_TOKEN do not start other workflows, so health-check.yml would not
+      # run on its own after this push. Starting it explicitly is allowed.
+      - name: Start the health check
+        if: steps.ff.outputs.pushed == 'true' && env.HAVE_SYNC_TOKEN == ''
+        run: gh workflow run health-check.yml --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

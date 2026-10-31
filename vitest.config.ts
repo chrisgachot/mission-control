@@ -1,13 +1,10 @@
 import { defineConfig } from 'vitest/config';
-import { cloudflare } from '@cloudflare/vitest-plugin';
+import { cloudflareTest } from '@cloudflare/vitest-plugin';
 
 export default defineConfig({
   plugins: [
-    cloudflare({
+    cloudflareTest({
       wrangler: { configPath: './wrangler.jsonc' },
-      miniflare: {
-        // Tests run against an in-memory D1; migrations are applied in test/setup.ts.
-      },
     }),
   ],
   test: {

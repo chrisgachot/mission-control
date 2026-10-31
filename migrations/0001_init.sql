@@ -94,7 +94,8 @@ CREATE TABLE IF NOT EXISTS remote_spaces (
   member_token TEXT NOT NULL,      -- plaintext: this Worker must present it
   created_at INTEGER NOT NULL,
   last_sync_at INTEGER,
-  last_error TEXT
+  last_error TEXT,
+  removed_at INTEGER               -- soft delete; rows are never deleted
 );
 
 CREATE TABLE IF NOT EXISTS projects (

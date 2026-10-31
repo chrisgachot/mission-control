@@ -10,6 +10,9 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/mcp/*"]
   },
+  // The dashboard bundle (public/app.js) is built by every `wrangler deploy` and `wrangler dev`,
+  // so a deploy can never ship without it. Workers Builds also runs `npm run build` first; the
+  // second build is cheap and picks up APP_VERSION (see scripts/deploy.mjs and docs/DEPLOY.md).
   "build": {
     "command": "npm run build:web"
   },
@@ -17,11 +20,15 @@
     {
       "binding": "DB",
       "database_name": "mission-control",
+      // Placeholder. The Deploy to Cloudflare button creates a new D1 database for the person and
+      // writes its real ID into their copy of this file. Do not put a real ID here upstream.
       "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
   ],
   "vars": {
+    // Overridden at deploy time by scripts/deploy.mjs when the build environment sets
+    // SPACE_NAME / SPACE_KIND / APP_VERSION. "shared" is for a shared space such as Light Hill.
     "SPACE_NAME": "Mission Control",
     "SPACE_KIND": "personal",
     "APP_VERSION": "dev"

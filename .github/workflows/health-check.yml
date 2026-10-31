@@ -1,0 +1,121 @@
+# After a push to main, waits for Workers Builds to deploy it, then checks GET /api/health.
+#
+# Setup (see docs/DEPLOY.md):
+#   Repository variable  APP_URL                 your Worker URL, for example https://mission-control.example.workers.dev
+#   Repository secret    CLOUDFLARE_API_TOKEN    optional, enables automatic rollback (permission: Workers Scripts - Edit)
+#   Repository secret    CLOUDFLARE_ACCOUNT_ID   optional, same
+#
+# The deploy script sets APP_VERSION to "<package version>+<7 char commit sha>", so the new version
+# is live when /api/health reports a version containing the first 7 characters of this commit.
+#
+#   healthy    the new version is live and /api/health says ok.
+#   unhealthy  the new version is live but reports a problem. Rolls back if the secrets exist.
+#   unknown    the new version never showed up within 10 minutes (build failed or is slow).
+#              Nothing is rolled back, because the previous version may still be the good one.
+#
+# Anything other than healthy turns this run red.
+
+name: Health check
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: health-check
+  cancel-in-progress: true
+
+jobs:
+  health:
+    if: github.repository != 'chrisgachot/mission-control'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      APP_URL: ${{ vars.APP_URL }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check out (the rollback reads the Worker name from wrangler.jsonc)
+        if: env.APP_URL != ''
+        uses: actions/checkout@v4
+
+      - name: Wait for the new version and check health
+        id: poll
+        if: env.APP_URL != ''
+        shell: bash
+        run: |
+          url="${APP_URL%/}/api/health"
+          want="${GITHUB_SHA:0:7}"
+          echo "Waiting up to 10 minutes for $url to report a version containing $want"
+
+          result=unknown
+          bad=0
+          deadline=$((SECONDS + 600))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            body="$(curl -sS -m 15 "$url" 2>/dev/null || true)"
+            version="$(printf '%s' "$body" | jq -r '.version // empty' 2>/dev/null || true)"
+            ok="$(printf '%s' "$body" | jq -r '.ok // empty' 2>/dev/null || true)"
+            echo "[$(date -u +%H:%M:%S)] version=${version:-none} ok=${ok:-none}"
+
+            if [[ -n "$version" && "$version" == *"$want"* ]]; then
+              if [ "$ok" = "true" ]; then
+                result=healthy
+                break
+              fi
+              bad=$((bad + 1))
+              # Three bad answers in a row from the new version is a failure, not a warm-up.
+              if [ "$bad" -ge 3 ]; then
+                result=unhealthy
+                break
+              fi
+            fi
+            sleep 20
+          done
+
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "### Health check: $result" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit \`$want\`, last response: \`$body\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Node
+        if: steps.poll.outputs.result == 'unhealthy' && env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Roll back to the previous version
+        if: steps.poll.outputs.result == 'unhealthy' && env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        run: |
+          npx --yes wrangler@4 rollback --message "health check failed"
+          sleep 15
+          echo "Health after rollback:"
+          curl -sS -m 15 "${APP_URL%/}/api/health" || true
+
+      - name: Report
+        if: always()
+        shell: bash
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "::notice::Repository variable APP_URL is not set, so the health check was skipped. See docs/DEPLOY.md."
+            exit 0
+          fi
+          case "${{ steps.poll.outputs.result }}" in
+            healthy)
+              echo "Healthy."
+              ;;
+            unhealthy)
+              if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+                echo "::error::The new version is live but unhealthy. A rollback to the previous version was requested."
+              else
+                echo "::error::The new version is live but unhealthy. Add the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets to enable automatic rollback, or roll back in the Cloudflare dashboard (Worker > Deployments)."
+              fi
+              exit 1
+              ;;
+            *)
+              echo "::error::The new version did not appear at $APP_URL within 10 minutes. Check the build log in Cloudflare (Worker > Deployments > View build history). Nothing was rolled back."
+              exit 1
+              ;;
+          esac

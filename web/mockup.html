@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mission Control (mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#06070c; --glass:rgba(18,20,32,.62); --glass2:rgba(26,29,46,.72);
+  --hair:rgba(255,255,255,.07); --hair2:rgba(255,255,255,.12);
+  --ink:#f2f4ff; --ink2:rgba(235,238,255,.62); --ink3:rgba(235,238,255,.38);
+  --code:#0891b2; --cowork:#ec4899; --duet:#65a30d; --chat:#8b5cf6;
+  --needs:#ff9f0a; --stale:#ff453a; --done:#30d158;
+  --neon:#5ef2ff; --pink:#ff4fd8;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",Inter,system-ui,sans-serif;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+body{min-height:100vh;overflow-x:hidden}
+/* ambient backdrop: perspective grid + neon haze */
+.backdrop{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.backdrop .haze{position:absolute;inset:-20%;background:
+  radial-gradient(40% 35% at 18% 8%,rgba(8,145,178,.22),transparent 70%),
+  radial-gradient(35% 30% at 88% 20%,rgba(236,72,153,.16),transparent 70%),
+  radial-gradient(50% 40% at 50% 110%,rgba(139,92,246,.18),transparent 70%)}
+.backdrop .grid{position:absolute;left:-50%;right:-50%;bottom:-10%;height:55%;
+  background-image:linear-gradient(rgba(94,242,255,.09) 1px,transparent 1px),linear-gradient(90deg,rgba(94,242,255,.09) 1px,transparent 1px);
+  background-size:56px 56px;transform:perspective(600px) rotateX(62deg);transform-origin:bottom;
+  mask-image:linear-gradient(to top,rgba(0,0,0,.9),transparent 80%);-webkit-mask-image:linear-gradient(to top,rgba(0,0,0,.9),transparent 80%)}
+.backdrop .scan{position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,255,255,.012) 0 1px,transparent 1px 3px)}
+.app{position:relative;z-index:1;max-width:1320px;margin:0 auto;padding:22px 28px 60px}
+
+/* toolbar */
+.toolbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px;letter-spacing:.18em;color:var(--ink3);text-transform:uppercase}
+.brand .dot{width:8px;height:8px;border-radius:50%;background:var(--neon);box-shadow:0 0 10px var(--neon),0 0 22px rgba(94,242,255,.6);animation:breathe 3s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.45}}
+.spacer{flex:1}
+.seg{display:inline-flex;background:rgba(118,118,128,.18);border-radius:9px;padding:2px;position:relative}
+.seg button{all:unset;cursor:pointer;font-size:13px;font-weight:500;padding:5px 14px;border-radius:7px;color:var(--ink2);transition:color .2s,background .2s}
+.seg button.on{background:rgba(255,255,255,.14);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.seg button:focus-visible{outline:2px solid var(--neon)}
+.iconbtn{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--ink2);padding:6px 10px;border-radius:8px}
+.iconbtn:hover{background:rgba(255,255,255,.06);color:var(--ink)}
+.iconbtn svg{width:15px;height:15px}
+.largetitle{font-size:40px;font-weight:700;letter-spacing:-.02em;margin:18px 0 2px;
+  background:linear-gradient(90deg,#fff 0%,#c9f9ff 45%,#ffc2f1 100%);-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 18px rgba(94,242,255,.18))}
+.subtitle{color:var(--ink2);font-size:15px;margin-bottom:20px}
+.subtitle b{color:var(--ink);font-weight:600}
+
+/* HUD readout strip */
+.hud{display:flex;gap:2px;background:var(--glass);border:1px solid var(--hair);border-radius:18px;padding:6px;backdrop-filter:blur(30px) saturate(160%);-webkit-backdrop-filter:blur(30px) saturate(160%);margin-bottom:18px;flex-wrap:wrap}
+.readout{all:unset;cursor:pointer;flex:1;min-width:150px;display:flex;align-items:center;gap:14px;padding:12px 16px;border-radius:13px;transition:background .2s}
+.readout:hover{background:rgba(255,255,255,.05)}
+.readout:focus-visible{outline:2px solid var(--neon)}
+.readout .ring{width:42px;height:42px;flex:none}
+.readout .val{font-family:var(--mono);font-size:24px;font-weight:600;line-height:1}
+.readout .lab{font-size:12px;color:var(--ink2);margin-top:4px;display:flex;align-items:center;gap:5px}
+.readout .chev{margin-left:auto;color:var(--ink3);font-size:18px}
+
+/* panels */
+.grid2{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:18px;margin-bottom:18px}
+.panel{background:var(--glass);border:1px solid var(--hair);border-radius:22px;padding:20px 22px;backdrop-filter:blur(30px) saturate(160%);-webkit-backdrop-filter:blur(30px) saturate(160%);position:relative;overflow:hidden}
+.panel::before{content:"";position:absolute;inset:0;border-radius:22px;pointer-events:none;
+  background:linear-gradient(180deg,rgba(255,255,255,.05),transparent 30%)}
+.phead{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.phead h2{font-size:20px;font-weight:600;letter-spacing:-.01em;margin:0}
+.phead .hint{font-size:12px;color:var(--ink3);font-family:var(--mono);letter-spacing:.04em}
+.phead .link{margin-left:auto;all:unset;cursor:pointer;margin-left:auto;font-size:14px;color:var(--neon)}
+.phead .link:hover{text-decoration:underline}
+
+/* legend chips (tool filter) */
+.legend{display:flex;gap:6px;flex-wrap:wrap}
+.chip{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:7px;font-size:13px;padding:5px 11px 5px 9px;border-radius:999px;background:rgba(255,255,255,.05);color:var(--ink2);border:1px solid transparent;transition:all .2s}
+.chip i{width:9px;height:9px;border-radius:50%;display:inline-block}
+.chip:hover{color:var(--ink);background:rgba(255,255,255,.08)}
+.chip.on{color:var(--ink);border-color:var(--hair2);background:rgba(255,255,255,.1)}
+.chip.dim{opacity:.4}
+.chip:focus-visible{outline:2px solid var(--neon)}
+
+/* reactor */
+.reactor{display:flex;flex-direction:column;align-items:center}
+.reactor svg{width:100%;max-width:560px;height:auto;overflow:visible}
+.arc{cursor:pointer;transition:opacity .25s,stroke-width .2s}
+.arc:hover{stroke-width:24}
+.arc.faded{opacity:.12}
+.track{fill:none;stroke:rgba(255,255,255,.045)}
+.plabel{cursor:pointer;fill:var(--ink2);font-size:13px;font-weight:500;transition:fill .2s}
+.plabel:hover{fill:#fff}
+.core{cursor:pointer}
+.core:hover .corering{stroke:var(--needs)}
+.pulse{animation:pulse 1.8s ease-out infinite;transform-box:fill-box;transform-origin:center}
+@keyframes pulse{0%{opacity:.9;transform:scale(1)}100%{opacity:0;transform:scale(2.6)}}
+
+/* charts */
+.chart svg{width:100%;height:auto;display:block;overflow:visible}
+.axis text{fill:var(--ink3);font-size:11px;font-family:var(--mono)}
+.gridline{stroke:rgba(255,255,255,.06)}
+.series{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round;transition:opacity .25s}
+.series.faded,.area.faded{opacity:.08}
+.endlabel{font-size:12px;font-weight:500;fill:var(--ink2)}
+
+/* queue list (HIG inset grouped rows) */
+.list{border-radius:14px;overflow:hidden;background:rgba(255,255,255,.025)}
+.row{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:14px;width:100%;padding:12px 14px;position:relative;transition:background .15s}
+.row+.row::before{content:"";position:absolute;top:0;left:52px;right:0;height:1px;background:var(--hair)}
+.row:hover{background:rgba(255,255,255,.05)}
+.row:focus-visible{outline:2px solid var(--neon);outline-offset:-2px}
+.glyph{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex:none;position:relative}
+.glyph svg{width:16px;height:16px}
+.rtext{flex:1;min-width:0}
+.rtitle{font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rsub{font-size:12.5px;color:var(--ink2);margin-top:2px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.rsub .m{font-family:var(--mono);color:var(--ink3)}
+.chev{color:var(--ink3);font-size:20px;line-height:1;flex:none}
+.pill{all:unset;cursor:pointer;font-size:13px;font-weight:600;padding:6px 13px;border-radius:999px;background:rgba(94,242,255,.14);color:var(--neon);flex:none;transition:background .2s}
+.pill:hover{background:rgba(94,242,255,.24)}
+.pill.ok{background:rgba(48,209,88,.15);color:var(--done)}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;padding:2px 7px;border-radius:6px}
+.badge.needs{color:var(--needs);background:rgba(255,159,10,.12)}
+.badge.stale{color:var(--stale);background:rgba(255,69,58,.12)}
+.badge.running{color:var(--neon);background:rgba(94,242,255,.1)}
+.badge.done{color:var(--done);background:rgba(48,209,88,.12)}
+.badge svg{width:11px;height:11px}
+.spark{flex:none}
+.pips{display:flex;gap:4px}
+.pips i{width:7px;height:7px;border-radius:50%;display:inline-block}
+.empty{padding:28px;text-align:center;color:var(--ink3);font-size:14px}
+
+/* tooltip */
+#tip{position:fixed;z-index:50;pointer-events:none;background:rgba(14,16,26,.92);border:1px solid var(--hair2);border-radius:10px;padding:9px 11px;font-size:12.5px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 10px 30px rgba(0,0,0,.5);opacity:0;transition:opacity .12s;max-width:260px}
+#tip .t{font-weight:600;margin-bottom:4px}
+#tip .r{display:flex;align-items:center;gap:7px;color:var(--ink2);margin-top:2px}
+#tip .r i{width:8px;height:8px;border-radius:50%}
+#tip .r b{margin-left:auto;font-family:var(--mono);color:var(--ink);font-weight:500;padding-left:12px}
+#tip .k{color:var(--ink3);font-size:11px;margin-top:6px}
+
+/* sheet */
+.scrim{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.45);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);opacity:0;pointer-events:none;transition:opacity .25s}
+.scrim.open{opacity:1;pointer-events:auto}
+.sheet{position:fixed;z-index:41;left:50%;top:50%;width:min(620px,94vw);max-height:84vh;display:flex;flex-direction:column;
+  transform:translate(-50%,-46%) scale(.97);opacity:0;pointer-events:none;transition:all .3s cubic-bezier(.2,.9,.3,1.1);
+  background:rgba(20,22,34,.9);border:1px solid var(--hair2);border-radius:26px;backdrop-filter:blur(40px) saturate(180%);-webkit-backdrop-filter:blur(40px) saturate(180%);
+  box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(94,242,255,.05),0 0 60px rgba(94,242,255,.06)}
+.sheet.open{transform:translate(-50%,-50%) scale(1);opacity:1;pointer-events:auto}
+.sheet .grab{width:36px;height:5px;border-radius:3px;background:rgba(255,255,255,.2);margin:8px auto 0}
+.sheet header{display:flex;align-items:flex-start;gap:12px;padding:14px 22px 10px}
+.sheet header .back{all:unset;cursor:pointer;color:var(--neon);font-size:15px;padding-top:6px;display:none}
+.sheet header .back.show{display:block}
+.sheet h3{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em}
+.sheet .sh-sub{color:var(--ink2);font-size:13.5px;margin-top:3px}
+.sheet .close{all:unset;cursor:pointer;margin-left:auto;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.1);display:grid;place-items:center;color:var(--ink2);flex:none}
+.sheet .close:hover{background:rgba(255,255,255,.16);color:#fff}
+.sheet .body{overflow:auto;padding:4px 22px 22px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:8px 18px;font-size:14px;margin:6px 0 16px}
+.kv dt{color:var(--ink3)}
+.kv dd{margin:0}
+.kv button{all:unset;cursor:pointer;color:var(--neon)}
+.kv button:hover{text-decoration:underline}
+.sect{font-size:12px;font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin:18px 0 8px}
+.timeline{position:relative;padding-left:18px}
+.timeline::before{content:"";position:absolute;left:4px;top:6px;bottom:6px;width:1px;background:linear-gradient(var(--neon),transparent)}
+.tl{position:relative;padding:5px 0 9px;font-size:14px}
+.tl::before{content:"";position:absolute;left:-18px;top:11px;width:9px;height:9px;border-radius:50%;background:var(--bg);border:2px solid var(--neon)}
+.tl .when{font-family:var(--mono);font-size:11.5px;color:var(--ink3)}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.btn{all:unset;cursor:pointer;font-size:15px;font-weight:600;padding:11px 18px;border-radius:12px;background:rgba(255,255,255,.08);color:var(--ink);transition:background .2s}
+.btn:hover{background:rgba(255,255,255,.14)}
+.btn.primary{background:linear-gradient(135deg,#0ea5c6,#7c3aed);box-shadow:0 0 24px rgba(94,242,255,.25)}
+.btn.primary:hover{filter:brightness(1.12)}
+.btn.destructive{color:#ff6961}
+.btn:focus-visible,.pill:focus-visible,.close:focus-visible{outline:2px solid var(--neon)}
+
+/* toast */
+#toast{position:fixed;z-index:60;bottom:26px;left:50%;transform:translate(-50%,20px);opacity:0;transition:all .3s cubic-bezier(.2,.9,.3,1.2);
+  background:rgba(28,30,46,.92);border:1px solid var(--hair2);border-radius:999px;padding:10px 18px;font-size:14px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;gap:8px;align-items:center;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+#toast i{width:8px;height:8px;border-radius:50%;background:var(--done);box-shadow:0 0 8px var(--done)}
+
+.footer{color:var(--ink3);font-size:12px;text-align:center;margin-top:26px;font-family:var(--mono);letter-spacing:.06em}
+@media (max-width:980px){.grid2{grid-template-columns:1fr}.largetitle{font-size:32px}.app{padding:16px 14px 40px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="backdrop"><div class="haze"></div><div class="grid"></div><div class="scan"></div></div>
+<div class="app">
+  <div class="toolbar">
+    <div class="brand"><span class="dot"></span>Mission Control · mock data</div>
+    <div class="spacer"></div>
+    <div class="seg" id="range" role="tablist" aria-label="Time range">
+      <button data-r="24h">24H</button><button data-r="7d" class="on">7D</button><button data-r="30d">30D</button>
+    </div>
+    <button class="iconbtn" id="syncBtn" title="Sync now"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3h-3"/></svg><span id="syncTxt">Synced 2 min ago</span></button>
+  </div>
+
+  <div class="largetitle">Mission Control</div>
+  <div class="subtitle" id="greeting"></div>
+
+  <div class="hud" id="hud"></div>
+
+  <div class="grid2">
+    <section class="panel">
+      <div class="phead"><h2>Where work is running</h2><span class="hint">RINGS = TOOLS · SECTORS = PROJECTS</span></div>
+      <div class="legend" id="legendA" style="margin-bottom:6px"></div>
+      <div class="reactor"><svg id="reactor" viewBox="-60 -40 640 600" role="img" aria-label="Radial map of workstreams by tool and project"></svg></div>
+    </section>
+    <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
+      <section class="panel">
+        <div class="phead"><h2>Needs you</h2><span class="hint" id="needsHint"></span><button class="link" id="needsAll">See all</button></div>
+        <div class="list" id="needsList"></div>
+      </section>
+      <section class="panel chart">
+        <div class="phead"><h2>Agent activity</h2><span class="hint" id="actHint"></span></div>
+        <div class="legend" id="legendB" style="margin-bottom:8px"></div>
+        <svg id="activity" viewBox="0 0 640 230" role="img" aria-label="Line chart of agent actions over time by tool"></svg>
+      </section>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <section class="panel">
+      <div class="phead"><h2>Projects</h2><span class="hint">ACTIVITY PULSE</span></div>
+      <div class="list" id="projList"></div>
+    </section>
+    <section class="panel chart">
+      <div class="phead"><h2>Going cold</h2><span class="hint">DAYS SINCE ANYONE TOUCHED IT</span><button class="link" id="staleAll">Review stale</button></div>
+      <svg id="decay" viewBox="0 0 620 250" role="img" aria-label="Strip plot of open workstreams by days since last activity"></svg>
+    </section>
+  </div>
+  <div class="footer">Every number, ring, line and dot opens what is behind it. Data is made up.</div>
+</div>
+
+<div id="tip"></div>
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="shTitle">
+  <div class="grab"></div>
+  <header>
+    <button class="back" id="shBack">‹ Back</button>
+    <div><h3 id="shTitle"></h3><div class="sh-sub" id="shSub"></div></div>
+    <button class="close" id="shClose" aria-label="Close"><svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"/></svg></button>
+  </header>
+  <div class="body" id="shBody"></div>
+</div>
+<div id="toast"><i></i><span></span></div>
+
+<script>
+/* ---------- data (mock) ---------- */
+const TOOLS={
+  code:{name:"Claude Code",c:"#0891b2",glyph:'<path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5"/>'},
+  cowork:{name:"Cowork",c:"#ec4899",glyph:'<rect x="3" y="2.5" width="10" height="11" rx="2"/><path d="M5.5 6h5M5.5 8.5h5M5.5 11h3"/>'},
+  duet:{name:"Duet",c:"#65a30d",glyph:'<circle cx="6" cy="8" r="3.5"/><circle cx="10" cy="8" r="3.5"/>'},
+  chat:{name:"Chat",c:"#8b5cf6",glyph:'<path d="M3 4.5A2 2 0 0 1 5 2.5h6a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7l-3 3v-3a2 2 0 0 1-1-1.7z"/>'}
+};
+const TOOL_ORDER=["code","cowork","duet","chat"];
+const PROJECTS=[
+  {id:"field",name:"Field"},{id:"codex",name:"Codex"},{id:"beacon",name:"Beacon"},
+  {id:"bf88",name:"Black Falcon"},{id:"floor",name:"Floorplan Repo"},{id:"personal",name:"Personal"}
+];
+const STATUS={
+  needs:{name:"Needs you",c:"var(--needs)",icon:'<svg viewBox="0 0 12 12" fill="currentColor"><path d="M6 1l5.2 9.5H.8z"/><rect x="5.3" y="4.3" width="1.4" height="3.3" fill="#000"/><rect x="5.3" y="8.3" width="1.4" height="1.2" fill="#000"/></svg>'},
+  running:{name:"Running",c:"var(--neon)",icon:'<svg viewBox="0 0 12 12" fill="currentColor"><circle cx="6" cy="6" r="3"/></svg>'},
+  stale:{name:"Stale",c:"var(--stale)",icon:'<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="4.5"/><path d="M6 3.5V6l1.8 1.2"/></svg>'},
+  done:{name:"Done",c:"var(--done)",icon:'<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2.5 6.2l2.3 2.3 4.7-5"/></svg>'}
+};
+let ITEMS=[
+ {id:1,t:"Approve UniFi U7 Pro purchase",tool:"duet",p:"bf88",s:"needs",age:1,where:"Duet · Link approval",next:"Approve $214 spend in Link",log:["Found best price at UI Store","Confirmed model with you","Link approval requested"]},
+ {id:2,t:"Pick a session timeout for Field auth",tool:"code",p:"field",s:"needs",age:3,where:"Claude Code · field/auth",next:"Choose 8h, 24h, or 7 days",log:["Refactored token refresh","Tests passing","Paused for your decision"]},
+ {id:3,t:"Review HY35 knowledge capture draft",tool:"cowork",p:"codex",s:"needs",age:20,where:"Cowork · codex_hy35.docx",next:"Read and mark up the draft",log:["Pulled interview notes","Drafted 14 sections","Draft ready for review"]},
+ {id:4,t:"Collect vendor contacts from Light Hill Gmail",tool:"duet",p:"field",s:"running",age:.5,where:"Duet · background",next:"Nothing yet, it will report back",log:["Scanned 412 threads","Found 63 vendors","Matching to Field vendor list"]},
+ {id:5,t:"Uptime function for Beacon",tool:"code",p:"beacon",s:"running",age:2,where:"Claude Code · beacon/uptime",next:"Watch the next deploy",log:["Wrote Netlify Function","Deployed to preview","Monitoring 45 sites"]},
+ {id:6,t:"Status wall layout v2",tool:"cowork",p:"beacon",s:"running",age:30,where:"Cowork · beacon_layout",next:"Pick between two layouts",log:["Mocked two layouts","Added power tiles"]},
+ {id:7,t:"Schedule interview with Paula",tool:"duet",p:"codex",s:"running",age:5,where:"Duet · calendar",next:"Waiting on Paula to reply",log:["Proposed three times","Sent invite draft"]},
+ {id:8,t:"Asset onboarding camera flow",tool:"code",p:"field",s:"running",age:6,where:"Claude Code · field/onboard",next:"Test on your phone",log:["Added barcode scan","Wired photo upload to Blobs"]},
+ {id:9,t:"UniFi Access door schedules",tool:"chat",p:"bf88",s:"running",age:26,where:"Chat · door schedule thread",next:"Confirm warehouse hours",log:["Drafted schedule by door","Flagged after hours rule"]},
+ {id:10,t:"Cousy packaging quotes",tool:"duet",p:"personal",s:"running",age:8,where:"Duet · personal Gmail",next:"Wait for two more quotes",log:["Emailed four suppliers","One quote back"]},
+ {id:11,t:"OCR date extraction tuning",tool:"code",p:"floor",s:"running",age:50,where:"Claude Code · floorplan/ocr",next:"Spot check 20 results",log:["Retrained on title blocks","Accuracy up to 91%"]},
+ {id:12,t:"Cousy branding ideas",tool:"chat",p:"personal",s:"stale",age:288,where:"Chat · branding thread",next:"Resume or archive",log:["Brainstormed names","Sketched logo directions"]},
+ {id:13,t:"Floorplan history slider",tool:"code",p:"floor",s:"stale",age:216,where:"Claude Code · floorplan/slider",next:"Resume or archive",log:["Built slider UI","Stopped at date sorting bug"]},
+ {id:14,t:"Codex interview question bank",tool:"chat",p:"codex",s:"running",age:40,where:"Chat · Codex questions",next:"Add equestrian questions",log:["Wrote 40 questions","Grouped by system"]},
+ {id:15,t:"Vendor lookup search",tool:"code",p:"field",s:"done",age:70,where:"Claude Code · field/vendors",next:"Shipped",log:["Shipped to field.lighthillpm.com"]},
+ {id:16,t:"Codex template",tool:"cowork",p:"codex",s:"done",age:96,where:"Cowork · codex_template",next:"Shipped",log:["Template saved"]},
+ {id:17,t:"Order patch panels",tool:"duet",p:"bf88",s:"done",age:52,where:"Duet · purchases",next:"Delivered Thursday",log:["Approved in Link","Order confirmed"]},
+ {id:18,t:"Beacon color legend",tool:"chat",p:"beacon",s:"done",age:120,where:"Chat",next:"Shipped",log:["Legend finalized"]},
+ {id:19,t:"UPS power tile",tool:"code",p:"beacon",s:"done",age:30,where:"Claude Code · beacon/ups",next:"Shipped",log:["Live on the wall"]},
+ {id:20,t:"Morning inbox triage",tool:"duet",p:"personal",s:"running",age:.2,where:"Duet · daily",next:"Read this morning's brief",log:["Sorted 38 emails","3 need replies"]},
+ {id:21,t:"Field rollout email",tool:"cowork",p:"field",s:"done",age:140,where:"Cowork",next:"Sent",log:["Draft approved","Sent to staff"]}
+];
+
+/* ---------- state ---------- */
+const state={tool:null,range:"7d"};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const proj=id=>PROJECTS.find(p=>p.id===id);
+const visible=()=>ITEMS.filter(i=>!state.tool||i.tool===state.tool);
+function ago(h){if(h<1)return Math.max(1,Math.round(h*60))+"m ago";if(h<24)return Math.round(h)+"h ago";return Math.round(h/24)+"d ago"}
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const toolGlyph=(k,size=30)=>`<span class="glyph" style="width:${size}px;height:${size}px;background:${TOOLS[k].c}22;color:${TOOLS[k].c};box-shadow:inset 0 0 0 1px ${TOOLS[k].c}44"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${TOOLS[k].glyph}</svg></span>`;
+const badge=s=>`<span class="badge ${s}">${STATUS[s].icon}${STATUS[s].name}</span>`;
+
+/* ---------- tooltip & toast ---------- */
+const tip=$("#tip");
+function showTip(html,e){tip.innerHTML=html;tip.style.opacity=1;moveTip(e)}
+function moveTip(e){const w=tip.offsetWidth,h=tip.offsetHeight;let x=e.clientX+14,y=e.clientY+14;if(x+w>innerWidth-8)x=e.clientX-w-14;if(y+h>innerHeight-8)y=e.clientY-h-14;tip.style.left=x+"px";tip.style.top=y+"px"}
+function hideTip(){tip.style.opacity=0}
+let toastT;function toast(m){const t=$("#toast");t.querySelector("span").textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2400)}
+
+/* ---------- sheet (with back stack) ---------- */
+const stack=[];
+function openSheet(fn,push=true){if(push)stack.push(fn);else{stack.length=0;stack.push(fn)}renderSheet()}
+function renderSheet(){const fn=stack[stack.length-1];const v=fn();$("#shTitle").textContent=v.title;$("#shSub").innerHTML=v.sub||"";$("#shBody").innerHTML=v.body;$("#shBack").classList.toggle("show",stack.length>1);
+  $("#sheet").classList.add("open");$("#scrim").classList.add("open");$("#shBody").scrollTop=0;v.after&&v.after();}
+function closeSheet(){stack.length=0;$("#sheet").classList.remove("open");$("#scrim").classList.remove("open")}
+$("#shClose").onclick=closeSheet;$("#scrim").onclick=closeSheet;
+$("#shBack").onclick=()=>{stack.pop();renderSheet()};
+addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
+
+function itemRows(list,opts={}){
+  if(!list.length)return `<div class="empty">Nothing here right now.</div>`;
+  return `<div class="list">${list.map(i=>`<button class="row" data-item="${i.id}">${toolGlyph(i.tool)}<div class="rtext"><div class="rtitle">${esc(i.t)}</div><div class="rsub">${badge(i.s)}<span>${proj(i.p).name}</span><span class="m">${ago(i.age)}</span></div></div><span class="chev">›</span></button>`).join("")}</div>`;
+}
+function wireRows(root){root.querySelectorAll("[data-item]").forEach(b=>b.onclick=e=>{e.stopPropagation();openSheet(()=>itemView(+b.dataset.item))})}
+function listView(title,sub,list){return ()=>({title,sub,body:itemRows(list),after:()=>wireRows($("#shBody"))})}
+
+function itemView(id){
+  const i=ITEMS.find(x=>x.id===id);
+  const verb={code:"Open session",cowork:"Open in Cowork",duet:"Open in Duet",chat:"Open chat"}[i.tool];
+  const acts=i.s==="done"?`<button class="btn" data-a="reopen">Reopen</button>`:
+    `<button class="btn primary" data-a="open">${verb}</button>`+
+    (i.s==="needs"?`<button class="btn" data-a="handled">Mark handled</button>`:"")+
+    (i.s==="stale"?`<button class="btn" data-a="resume">Resume</button>`:`<button class="btn" data-a="snooze">Snooze a day</button>`)+
+    `<button class="btn destructive" data-a="archive">Archive</button>`;
+  return {title:i.t,sub:`${badge(i.s)} &nbsp;${TOOLS[i.tool].name} · last activity ${ago(i.age)}`,
+    body:`<dl class="kv"><dt>Project</dt><dd><button data-proj="${i.p}">${proj(i.p).name}</button></dd><dt>Running in</dt><dd><button data-tool="${i.tool}">${TOOLS[i.tool].name}</button> <span style="color:var(--ink3)">${esc(i.where.split("·")[1]||"")}</span></dd><dt>Next step</dt><dd>${esc(i.next)}</dd></dl>
+      <div class="sect">Timeline</div><div class="timeline">${i.log.slice().reverse().map((l,k)=>`<div class="tl"><div>${esc(l)}</div><div class="when">${ago(i.age+k*(3+k*5))}</div></div>`).join("")}</div>
+      <div class="actions">${acts}</div>`,
+    after(){
+      const b=$("#shBody");
+      b.querySelectorAll("[data-proj]").forEach(x=>x.onclick=()=>openSheet(()=>projectView(x.dataset.proj)));
+      b.querySelectorAll("[data-tool]").forEach(x=>x.onclick=()=>openSheet(()=>toolView(x.dataset.tool)));
+      b.querySelectorAll("[data-a]").forEach(x=>x.onclick=()=>{
+        const a=x.dataset.a;
+        if(a==="open"){toast(`In the real version this jumps straight into ${TOOLS[i.tool].name}`);return}
+        if(a==="handled"||a==="archive"){i.s="done";toast(a==="archive"?"Archived":"Marked handled")}
+        if(a==="resume"){i.s="running";i.age=0;toast("Back in motion")}
+        if(a==="snooze"){i.age+=24;toast("Snoozed until tomorrow")}
+        if(a==="reopen"){i.s="running";i.age=0;toast("Reopened")}
+        renderAll();renderSheet();
+      });
+    }};
+}
+function projectView(pid){
+  const p=proj(pid),list=ITEMS.filter(i=>i.p===pid);
+  const by=TOOL_ORDER.map(k=>[k,list.filter(i=>i.tool===k&&i.s!=="done").length]).filter(x=>x[1]);
+  return {title:p.name,sub:`${list.filter(i=>i.s!=="done").length} open across ${by.length} tool${by.length===1?"":"s"}`,
+    body:`<svg viewBox="0 0 560 120" style="width:100%;height:auto;margin:4px 0 6px">${projectSparkBig(pid)}</svg>
+      <div class="sect">Open</div>${itemRows(list.filter(i=>i.s!=="done").sort(sortItems))}
+      <div class="sect">Done recently</div>${itemRows(list.filter(i=>i.s==="done"))}`,
+    after:()=>wireRows($("#shBody"))};
+}
+function toolView(k){
+  const list=ITEMS.filter(i=>i.tool===k);
+  return {title:TOOLS[k].name,sub:`${list.filter(i=>i.s!=="done").length} open workstreams`,
+    body:`<div class="actions" style="margin:0 0 6px"><button class="btn" id="filterTool">${state.tool===k?"Clear filter":"Filter the whole board to "+TOOLS[k].name}</button></div>
+      <div class="sect">Open</div>${itemRows(list.filter(i=>i.s!=="done").sort(sortItems))}<div class="sect">Done</div>${itemRows(list.filter(i=>i.s==="done"))}`,
+    after(){wireRows($("#shBody"));$("#filterTool").onclick=()=>{setTool(state.tool===k?null:k);closeSheet()}}};
+}
+const sOrder={needs:0,stale:1,running:2,done:3};
+const sortItems=(a,b)=>sOrder[a.s]-sOrder[b.s]||a.age-b.age;
+
+/* ---------- activity data ---------- */
+function buckets(){
+  const n={"24h":24,"7d":7,"30d":30}[state.range];
+  const now=new Date("2026-10-31T15:00:00");
+  return Array.from({length:n},(_,i)=>{
+    const d=new Date(now);
+    if(state.range==="24h")d.setHours(now.getHours()-(n-1-i));else d.setDate(now.getDate()-(n-1-i));
+    const lab=state.range==="24h"?d.toLocaleTimeString("en-US",{hour:"numeric"}):d.toLocaleDateString("en-US",{weekday:state.range==="7d"?"short":undefined,month:state.range==="30d"?"short":undefined,day:"numeric"});
+    const r=rng(i*97+n*13);
+    const vals={};TOOL_ORDER.forEach((k,j)=>{const base={code:9,cowork:5,duet:7,chat:4}[k];const wk=(state.range!=="24h"&&[0,6].includes(d.getDay()))?.45:1;
+      const hr=state.range==="24h"?(d.getHours()>=8&&d.getHours()<=19?1:.25):1;
+      vals[k]=Math.round((base+r()*base*1.1)*wk*hr*(state.range==="24h"?.35:1)+(r()*2|0))});
+    return {d,lab,vals,seed:i*31+n};
+  });
+}
+function bucketEvents(b){
+  const r=rng(b.seed),out=[];
+  TOOL_ORDER.forEach(k=>{if(state.tool&&state.tool!==k)return;const pool=ITEMS.filter(i=>i.tool===k);const c=Math.min(b.vals[k],4);
+    for(let j=0;j<c;j++){const it=pool[(r()*pool.length)|0];out.push({it,txt:it.log[(r()*it.log.length)|0]})}});
+  return out;
+}
+
+/* ---------- renderers ---------- */
+function renderGreeting(){
+  const v=visible(),n=v.filter(i=>i.s==="needs").length,r=v.filter(i=>i.s==="running").length;
+  $("#greeting").innerHTML=`Good afternoon, Chris. <b>${r} workstreams</b> are moving and <b>${n}</b> ${n===1?"is":"are"} waiting on you${state.tool?` in ${TOOLS[state.tool].name}`:""}.`;
+}
+function ringSVG(frac,color){const R=17,C=2*Math.PI*R;return `<svg class="ring" viewBox="0 0 42 42"><circle cx="21" cy="21" r="${R}" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="4"/><circle cx="21" cy="21" r="${R}" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${C*frac} ${C}" transform="rotate(-90 21 21)" style="filter:drop-shadow(0 0 4px ${color})"/></svg>`}
+function renderHUD(){
+  const v=visible(),tot=v.length||1;
+  const defs=[["running","Running","#5ef2ff"],["needs","Waiting on you","#ff9f0a"],["stale","Stale, 7+ days","#ff453a"],["done","Done this week","#30d158"]];
+  $("#hud").innerHTML=defs.map(([s,l,c])=>{const n=v.filter(i=>i.s===s).length;return `<button class="readout" data-s="${s}">${ringSVG(n/tot,c)}<div><div class="val">${n}</div><div class="lab">${STATUS[s].icon.replace("<svg",`<svg width="11" height="11" style="color:${c}"`)}${l}</div></div><span class="chev">›</span></button>`}).join("");
+  $("#hud").querySelectorAll(".readout").forEach(b=>b.onclick=()=>{const s=b.dataset.s;openSheet(listView(b.querySelector(".lab").textContent,`${state.tool?TOOLS[state.tool].name+" only · ":""}tap any row for details`,visible().filter(i=>i.s===s).sort(sortItems)),false)});
+}
+function renderLegends(){
+  ["#legendA","#legendB"].forEach(sel=>{
+    $(sel).innerHTML=TOOL_ORDER.map(k=>`<button class="chip ${state.tool===k?"on":state.tool?"dim":""}" data-k="${k}"><i style="background:${TOOLS[k].c};box-shadow:0 0 8px ${TOOLS[k].c}"></i>${TOOLS[k].name}</button>`).join("")+(state.tool?`<button class="chip" data-k="">Show all</button>`:"");
+    $(sel).querySelectorAll(".chip").forEach(c=>c.onclick=()=>setTool(c.dataset.k||(null)));
+  });
+}
+function setTool(k){state.tool=(k&&state.tool!==k)?k:null;renderAll()}
+
+function polar(cx,cy,r,deg){const a=(deg-90)*Math.PI/180;return [cx+r*Math.cos(a),cy+r*Math.sin(a)]}
+function arcPath(cx,cy,r,a0,a1){const [x0,y0]=polar(cx,cy,r,a0),[x1,y1]=polar(cx,cy,r,a1);return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${a1-a0>180?1:0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`}
+function renderReactor(){
+  const cx=260,cy=260,svg=$("#reactor"),sec=360/PROJECTS.length;let out=`<defs>
+    <radialGradient id="coreG"><stop offset="0" stop-color="rgba(94,242,255,.18)"/><stop offset="1" stop-color="rgba(94,242,255,0)"/></radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
+  // radial guides
+  PROJECTS.forEach((p,pi)=>{const [x,y]=polar(cx,cy,252,pi*sec);out+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="rgba(255,255,255,.04)"/>`});
+  const live=ITEMS.filter(i=>i.s!=="done");
+  TOOL_ORDER.forEach((k,ri)=>{
+    const r=112+ri*36;
+    PROJECTS.forEach((p,pi)=>{
+      const a0=pi*sec+3,a1=(pi+1)*sec-3;
+      out+=`<path class="track" d="${arcPath(cx,cy,r,a0,a1)}" stroke-width="22"/>`;
+      const its=live.filter(i=>i.tool===k&&i.p===p.id);
+      if(!its.length)return;
+      const span=(a1-a0-(its.length-1)*2)/its.length;
+      its.forEach((it,j)=>{
+        const s0=a0+j*(span+2),s1=s0+span,faded=state.tool&&state.tool!==k;
+        const col=TOOLS[k].c,dash=it.s==="stale"?`stroke-dasharray="3 4" opacity=".55"`:"";
+        out+=`<path class="arc ${faded?"faded":""}" data-item="${it.id}" d="${arcPath(cx,cy,r,s0,s1)}" fill="none" stroke="${col}" stroke-width="20" ${dash} ${it.s==="stale"?"":'filter="url(#glow)"'}/>`;
+        if(it.s==="needs"&&!faded){const [x,y]=polar(cx,cy,r+15,(s0+s1)/2);out+=`<circle class="pulse" cx="${x}" cy="${y}" r="5" fill="#ff9f0a" pointer-events="none"/><circle cx="${x}" cy="${y}" r="4.5" fill="#ff9f0a" stroke="#06070c" stroke-width="2" pointer-events="none"/>`}
+      });
+    });
+  });
+  PROJECTS.forEach((p,pi)=>{const mid=(pi+.5)*sec,[x,y]=polar(cx,cy,268,mid);const anchor=Math.abs(x-cx)<20?"middle":x>cx?"start":"end";
+    out+=`<text class="plabel" data-proj="${p.id}" x="${x}" y="${y+4}" text-anchor="${anchor}">${p.name}</text>`});
+  const n=visible().filter(i=>i.s==="needs").length;
+  out+=`<g class="core" id="core"><circle cx="${cx}" cy="${cy}" r="92" fill="url(#coreG)"/><circle class="corering" cx="${cx}" cy="${cy}" r="74" fill="rgba(10,12,20,.85)" stroke="rgba(255,159,10,.5)" stroke-width="1.5" style="transition:stroke .2s"/>
+    <text x="${cx}" y="${cy+8}" text-anchor="middle" style="font:600 50px var(--mono);fill:#fff;filter:drop-shadow(0 0 12px rgba(255,159,10,.5))">${n}</text>
+    <text x="${cx}" y="${cy+34}" text-anchor="middle" style="font:600 11px var(--mono);letter-spacing:.2em;fill:#ff9f0a">NEED YOU</text></g>`;
+  svg.innerHTML=out;
+  svg.querySelectorAll(".arc").forEach(a=>{const it=ITEMS.find(i=>i.id==a.dataset.item);
+    a.onmousemove=e=>showTip(`<div class="t">${esc(it.t)}</div><div class="r"><i style="background:${TOOLS[it.tool].c}"></i>${TOOLS[it.tool].name}<b>${proj(it.p).name}</b></div><div class="r">${STATUS[it.s].name}<b>${ago(it.age)}</b></div><div class="k">Click for details</div>`,e);
+    a.onmouseleave=hideTip;a.onclick=()=>{hideTip();openSheet(()=>itemView(it.id),false)}});
+  svg.querySelectorAll(".plabel").forEach(l=>l.onclick=()=>openSheet(()=>projectView(l.dataset.proj),false));
+  $("#core").onclick=()=>openSheet(listView("Needs you","Decisions and approvals your agents are waiting on",visible().filter(i=>i.s==="needs").sort(sortItems)),false);
+}
+function renderNeeds(){
+  const list=visible().filter(i=>i.s==="needs").sort((a,b)=>a.age-b.age);
+  $("#needsHint").textContent=list.length?`${list.length} WAITING`:"ALL CLEAR";
+  const verb={code:"Decide",cowork:"Review",duet:"Approve",chat:"Reply"};
+  $("#needsList").innerHTML=list.length?list.map(i=>`<div class="row" role="button" tabindex="0" data-item="${i.id}">${toolGlyph(i.tool)}<div class="rtext"><div class="rtitle">${esc(i.t)}</div><div class="rsub"><span>${TOOLS[i.tool].name}</span><span>${proj(i.p).name}</span><span class="m">${ago(i.age)}</span></div></div><button class="pill" data-quick="${i.id}">${verb[i.tool]}</button></div>`).join(""):`<div class="empty">Nothing is waiting on you. Nice.</div>`;
+  $("#needsList").querySelectorAll(".row").forEach(r=>{r.onclick=()=>openSheet(()=>itemView(+r.dataset.item),false);r.onkeydown=e=>{if(e.key==="Enter")r.click()}});
+  $("#needsList").querySelectorAll("[data-quick]").forEach(b=>b.onclick=e=>{e.stopPropagation();const it=ITEMS.find(i=>i.id==b.dataset.quick);
+    if(b.classList.contains("ok")){it.s="done";toast("Handled, moved to done");renderAll();return}
+    b.classList.add("ok");b.textContent="Confirm";toast("Tap again to confirm")});
+}
+function renderActivity(){
+  const B=buckets(),W=640,H=230,L=34,R=86,T=12,Bm=28,iw=W-L-R,ih=H-T-Bm;
+  const max=Math.max(...B.flatMap(b=>TOOL_ORDER.map(k=>b.vals[k])))*1.15;
+  const x=i=>L+(B.length===1?iw/2:i*iw/(B.length-1)),y=v=>T+ih-(v/max)*ih;
+  const total=B.reduce((s,b)=>s+TOOL_ORDER.filter(k=>!state.tool||k===state.tool).reduce((a,k)=>a+b.vals[k],0),0);
+  $("#actHint").textContent=`${total} ACTIONS · ${state.range.toUpperCase()}`;
+  let o=`<defs>${TOOL_ORDER.map(k=>`<linearGradient id="ag-${k}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${TOOLS[k].c}" stop-opacity=".28"/><stop offset="1" stop-color="${TOOLS[k].c}" stop-opacity="0"/></linearGradient>`).join("")}</defs>`;
+  const ticks=4;for(let t=0;t<=ticks;t++){const v=max/ticks*t;o+=`<line class="gridline" x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}"/><g class="axis"><text x="${L-8}" y="${y(v)+4}" text-anchor="end">${Math.round(v)}</text></g>`}
+  const every=Math.ceil(B.length/7);
+  B.forEach((b,i)=>{if(i%every===0||i===B.length-1)o+=`<g class="axis"><text x="${x(i)}" y="${H-8}" text-anchor="middle">${b.lab}</text></g>`});
+  // labels positioned with collision avoidance
+  const ends=[];
+  TOOL_ORDER.forEach(k=>{
+    const pts=B.map((b,i)=>[x(i),y(b.vals[k])]);
+    const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join("");
+    const f=state.tool&&state.tool!==k?"faded":"";
+    o+=`<path class="area ${f}" d="${line}L${pts[pts.length-1][0]} ${T+ih}L${pts[0][0]} ${T+ih}Z" fill="url(#ag-${k})"/>`;
+    o+=`<path class="series ${f}" d="${line}" stroke="${TOOLS[k].c}" style="filter:drop-shadow(0 0 5px ${TOOLS[k].c})"/>`;
+    if(!f)ends.push({k,y:pts[pts.length-1][1]});
+  });
+  ends.sort((a,b)=>a.y-b.y);for(let i=1;i<ends.length;i++)if(ends[i].y-ends[i-1].y<15)ends[i].y=ends[i-1].y+15;
+  ends.forEach(e=>o+=`<circle cx="${x(B.length-1)}" cy="${y(B[B.length-1].vals[e.k])}" r="3.5" fill="${TOOLS[e.k].c}" stroke="#06070c" stroke-width="2"/><text class="endlabel" x="${W-R+10}" y="${e.y+4}">${TOOLS[e.k].name}</text>`);
+  o+=`<g id="xh" style="display:none"><line id="xhl" y1="${T}" y2="${T+ih}" stroke="rgba(94,242,255,.5)" stroke-dasharray="3 3"/>${TOOL_ORDER.map(k=>`<circle id="xd-${k}" r="4.5" fill="${TOOLS[k].c}" stroke="#06070c" stroke-width="2"/>`).join("")}</g>`;
+  o+=`<rect id="hit" x="${L}" y="${T}" width="${iw}" height="${ih}" fill="transparent" style="cursor:pointer"/>`;
+  const svg=$("#activity");svg.innerHTML=o;
+  const hit=svg.querySelector("#hit"),xh=svg.querySelector("#xh");
+  const idxAt=e=>{const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const p=pt.matrixTransform(svg.getScreenCTM().inverse());return Math.max(0,Math.min(B.length-1,Math.round((p.x-L)/iw*(B.length-1))))};
+  hit.onmousemove=e=>{const i=idxAt(e),b=B[i];xh.style.display="";svg.querySelector("#xhl").setAttribute("x1",x(i));svg.querySelector("#xhl").setAttribute("x2",x(i));
+    TOOL_ORDER.forEach(k=>{const d=svg.querySelector("#xd-"+k);d.setAttribute("cx",x(i));d.setAttribute("cy",y(b.vals[k]));d.style.display=state.tool&&state.tool!==k?"none":""});
+    showTip(`<div class="t">${b.d.toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"})}${state.range==="24h"?" · "+b.lab:""}</div>${TOOL_ORDER.filter(k=>!state.tool||k===state.tool).map(k=>`<div class="r"><i style="background:${TOOLS[k].c}"></i>${TOOLS[k].name}<b>${b.vals[k]}</b></div>`).join("")}<div class="k">Click to see what happened</div>`,e)};
+  hit.onmouseleave=()=>{xh.style.display="none";hideTip()};
+  hit.onclick=e=>{const b=B[idxAt(e)];hideTip();const ev=bucketEvents(b);
+    openSheet(()=>({title:state.range==="24h"?`${b.lab} activity`:b.d.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"}),
+      sub:`${TOOL_ORDER.filter(k=>!state.tool||k===state.tool).reduce((a,k)=>a+b.vals[k],0)} agent actions${state.tool?" in "+TOOLS[state.tool].name:""}`,
+      body:`<div class="list">${ev.map(x=>`<button class="row" data-item="${x.it.id}">${toolGlyph(x.it.tool)}<div class="rtext"><div class="rtitle">${esc(x.txt)}</div><div class="rsub"><span>${esc(x.it.t)}</span><span class="m">${proj(x.it.p).name}</span></div></div><span class="chev">›</span></button>`).join("")}</div>`,
+      after:()=>wireRows($("#shBody"))}),false)};
+}
+function projSeries(pid,n=14){const r=rng(pid.length*131+pid.charCodeAt(0));const live=ITEMS.filter(i=>i.p===pid&&i.s!=="done"&&(!state.tool||i.tool===state.tool)).length;
+  return Array.from({length:n},(_,i)=>Math.max(0,Math.round(r()*4+live*1.6*(0.5+i/n)+(r()<.15?-2:0))))}
+function sparkPath(vals,w,h,pad=2){const m=Math.max(...vals,1);return vals.map((v,i)=>(i?"L":"M")+(pad+i*(w-2*pad)/(vals.length-1)).toFixed(1)+" "+(h-pad-(v/m)*(h-2*pad)).toFixed(1)).join("")}
+function projectSparkBig(pid){const v=projSeries(pid,30),d=sparkPath(v,560,110,6);return `<defs><linearGradient id="pg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#5ef2ff" stop-opacity=".3"/><stop offset="1" stop-color="#5ef2ff" stop-opacity="0"/></linearGradient></defs><path d="${d}L554 110L6 110Z" fill="url(#pg)"/><path d="${d}" fill="none" stroke="#5ef2ff" stroke-width="2" style="filter:drop-shadow(0 0 5px #5ef2ff)"/><text x="6" y="14" style="font:11px var(--mono);fill:var(--ink3)">LAST 30 DAYS OF ACTIVITY</text>`}
+function renderProjects(){
+  const rows=PROJECTS.map(p=>{const list=ITEMS.filter(i=>i.p===p.id&&(!state.tool||i.tool===state.tool));const open=list.filter(i=>i.s!=="done");
+    const tools=[...new Set(open.map(i=>i.tool))];const n=open.filter(i=>i.s==="needs").length,st=open.filter(i=>i.s==="stale").length;
+    const v=projSeries(p.id),hot=n?"#ff9f0a":"#5ef2ff";
+    return `<button class="row" data-proj="${p.id}"><div class="rtext"><div class="rtitle">${p.name}</div><div class="rsub"><span class="pips">${tools.map(k=>`<i style="background:${TOOLS[k].c}" title="${TOOLS[k].name}"></i>`).join("")}</span><span>${open.length} open</span>${n?badge("needs").replace("Needs you",n+" need you"):""}${st?badge("stale"):""}</div></div>
+      <svg class="spark" width="120" height="34" viewBox="0 0 120 34"><path d="${sparkPath(v,120,34)}" fill="none" stroke="${hot}" stroke-width="1.8" stroke-linejoin="round" style="filter:drop-shadow(0 0 4px ${hot})"/></svg><span class="chev">›</span></button>`});
+  $("#projList").innerHTML=rows.join("");
+  $("#projList").querySelectorAll("[data-proj]").forEach(b=>b.onclick=()=>openSheet(()=>projectView(b.dataset.proj),false));
+}
+function renderDecay(){
+  const W=620,H=250,L=96,R=16,T=10,Bm=34,iw=W-L-R,ih=H-T-Bm,maxD=14,lane=ih/TOOL_ORDER.length;
+  const x=d=>L+Math.sqrt(Math.min(d,maxD)/maxD)*iw;
+  let o=`<rect x="${x(7)}" y="${T}" width="${x(maxD)-x(7)}" height="${ih}" fill="rgba(255,69,58,.06)"/><line x1="${x(7)}" x2="${x(7)}" y1="${T}" y2="${T+ih}" stroke="rgba(255,69,58,.45)" stroke-dasharray="3 4"/><text x="${x(7)+8}" y="${T+14}" style="font:600 10.5px var(--mono);letter-spacing:.14em;fill:#ff6961">GOING COLD</text>`;
+  [0,1,2,4,7,10,14].forEach(d=>o+=`<g class="axis"><text x="${x(d)}" y="${H-12}" text-anchor="middle">${d===maxD?"14d+":d+"d"}</text></g>`);
+  TOOL_ORDER.forEach((k,ri)=>{const cy=T+lane*ri+lane/2;const f=state.tool&&state.tool!==k;
+    o+=`<line x1="${L}" x2="${W-R}" y1="${cy}" y2="${cy}" class="gridline"/><text x="${L-12}" y="${cy+4}" text-anchor="end" style="font-size:12px;fill:${f?"var(--ink3)":"var(--ink2)"};cursor:pointer" data-tool="${k}">${TOOLS[k].name}</text>`;
+    const its=ITEMS.filter(i=>i.tool===k&&i.s!=="done").sort((a,b)=>a.age-b.age);
+    its.forEach((it,j)=>{const d=it.age/24,cx=x(d),off=((j%3)-1)*9;const c=TOOLS[k].c;
+      o+=`<g class="dotg" data-item="${it.id}" style="cursor:pointer;opacity:${f?.12:1}"><circle cx="${cx}" cy="${cy+off}" r="14" fill="transparent"/><circle cx="${cx}" cy="${cy+off}" r="${it.s==="needs"?7:5.5}" fill="${it.s==="stale"?"transparent":c}" stroke="${it.s==="stale"?c:"#06070c"}" stroke-width="2" ${it.s==="stale"?"":`style="filter:drop-shadow(0 0 5px ${c})"`}/>${it.s==="needs"?`<circle cx="${cx}" cy="${cy+off}" r="10.5" fill="none" stroke="#ff9f0a" stroke-width="1.5"/>`:""}</g>`});
+  });
+  const svg=$("#decay");svg.innerHTML=o;
+  svg.querySelectorAll(".dotg").forEach(g=>{const it=ITEMS.find(i=>i.id==g.dataset.item);
+    g.onmousemove=e=>showTip(`<div class="t">${esc(it.t)}</div><div class="r"><i style="background:${TOOLS[it.tool].c}"></i>${TOOLS[it.tool].name}<b>${ago(it.age)}</b></div><div class="r">${STATUS[it.s].name}<b>${proj(it.p).name}</b></div><div class="k">Click for details</div>`,e);
+    g.onmouseleave=hideTip;g.onclick=()=>{hideTip();openSheet(()=>itemView(it.id),false)}});
+  svg.querySelectorAll("[data-tool]").forEach(t=>t.onclick=()=>openSheet(()=>toolView(t.dataset.tool),false));
+}
+function renderAll(){renderGreeting();renderHUD();renderLegends();renderReactor();renderNeeds();renderActivity();renderProjects();renderDecay()}
+
+/* ---------- controls ---------- */
+$("#range").querySelectorAll("button").forEach(b=>b.onclick=()=>{state.range=b.dataset.r;$("#range").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));renderActivity()});
+$("#syncBtn").onclick=()=>{$("#syncTxt").textContent="Syncing…";setTimeout(()=>{$("#syncTxt").textContent="Synced just now";toast("Pulled the latest from every tool (mock)")},700)};
+$("#needsAll").onclick=()=>$("#core").dispatchEvent(new MouseEvent("click"));
+$("#staleAll").onclick=()=>openSheet(listView("Going cold","Untouched for 7 days or more. Resume or archive each one.",visible().filter(i=>i.s==="stale")),false);
+renderAll();
+</script>
+</body>
+</html>

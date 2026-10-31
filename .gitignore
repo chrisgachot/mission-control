@@ -7,3 +7,4 @@ public/vault-worker.js
 .dev.vars
 *.log
 .dev.vars*
+tsconfig.vstub.tmp.json

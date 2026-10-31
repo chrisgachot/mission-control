@@ -147,7 +147,9 @@ export interface WorkstreamDetail {
 }
 
 export interface SetupResponse {
-  connectorUrl: string; // https://<host>/mcp/<token>
+  connectorUrl: string; // https://<host>/mcp/<token>, or masked when tokenMasked is true
+  /** True when the token part is hidden (it is shown only right after minting or rotation). */
+  tokenMasked: boolean;
   tokenCreatedAt: number;
   instructions: ConnectInstructions;
 }
