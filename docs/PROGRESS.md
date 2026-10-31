@@ -4,6 +4,8 @@ Newest first. One line per event. Uncertainty is marked `?`. Each track's own no
 
 | When (UTC) | What |
 | --- | --- |
+| 2026-10-31 21:40 | Security fixes from the review applied and verified in the browser on a fresh shared-space database: invite id alone is refused (page, options 403, verify), full link registers a member with recovery code and connect link, link is single-use. Also: removed admins' invites expire, remote fetches refuse redirects and cap bodies, ingest rejects retired keys, registration checks the current key in SQL. 97 tests pass. |
+| 2026-10-31 21:20 | Independent security review (Opus) delivered: `docs/review/security-review-1.md`. One high (invite id alone could join), three medium, several low. Crypto, PRF handling, sessions, CSRF, rotation guards found correct. |
 | 2026-10-31 21:05 | Browser end-to-end on a fresh database: first-run passkey registration with PRF (Chromium virtual authenticator), recovery code shown, PRF-wrapped keys stored, reload then passkey unlock succeeds, device without the passkey fails cleanly to the recovery path. Screens in `docs/screens/e2e-*.png`. |
 | 2026-10-31 20:55 | Browser end-to-end on the seeded database: recovery-code unlock, real decrypted titles on the board, "mark handled" moves counts, in-app Setup page, Lock. |
 | 2026-10-31 20:50 | Seed script run against wrangler dev through the real connector: 6 projects, 23 workstreams, 74 updates; titles stored as ciphertext. |
@@ -30,6 +32,14 @@ Newest first. One line per event. Uncertainty is marked `?`. Each track's own no
 - GitHub Actions (sync and health check) have not run on GitHub.
 
 ## Open issues (orchestrator's list)
+
+From the security review, not yet fixed (findings 3, 4, 5, 9 in `docs/review/security-review-1.md`):
+- `?` Public keys are not pinned: a personal copy encrypts to whatever key the shared space serves. Someone who can write the shared space's database could substitute a key. Fix: pin at connect time; vault checks the current public key matches a private key it holds.
+- `?` Rotation after member removal fails open (toast only, no retry). Fix: block the UI until rotation succeeds, with a retry button.
+- `?` Envelopes are bound to the key id only, not to their row or field. A database writer could move a note between items. Fix: add workstream id and field name to the authenticated data in a v2 envelope.
+- `?` No Content-Security-Policy header yet. Fix: strict CSP on the dashboard response.
+
+Earlier items:
 
 1. `?` Forwarding has no retry. If a shared space misses the first `started` for a workstream, later events for it are refused (409) and never forwarded. Fix: an outbox table and a retry on the next report, or synchronous forwarding with a timeout.
 2. `?` After a shared space rotates its key, a member's personal board shows new shared items as locked until the member reconnects. Fix: a member-token endpoint that serves the member's `user_pub` wraps.

@@ -3,6 +3,8 @@
  * Nothing here throws into the caller: failures land in remote_spaces.last_error.
  */
 import { encryptForKey } from './crypto/index.ts';
+// Security track (review 1, finding 6): no redirects, byte-capped bodies. See src/remote-fetch.ts.
+import { fetchRemote, parseRemoteJson, MAX_REMOTE_RESPONSE_BYTES } from './remote-fetch.ts';
 import { recordRemoteError, recordRemoteOk } from './db/spaces.ts';
 import type { RemoteSpaceRow } from './db/spaces.ts';
 import type { Bindings } from './env.d.ts';
@@ -41,12 +43,13 @@ function authHeaders(rs: RemoteSpaceRow): Record<string, string> {
 
 export async function forwardEvent(env: Bindings, rs: RemoteSpaceRow, ev: ForwardEvent): Promise<ForwardResult> {
   try {
-    const spaceRes = await fetch(rs.baseUrl + '/api/remote/space', {
+    const spaceRes = await fetchRemote(rs.baseUrl + '/api/remote/space', {
       headers: authHeaders(rs),
-      signal: AbortSignal.timeout(FORWARD_TIMEOUT_MS),
+      timeoutMs: FORWARD_TIMEOUT_MS,
+      maxBytes: MAX_REMOTE_RESPONSE_BYTES,
     });
     if (!spaceRes.ok) throw new Error('shared space answered ' + spaceRes.status + ' on /space');
-    const space = (await spaceRes.json()) as Partial<SpaceInfo>;
+    const space = parseRemoteJson(spaceRes.text) as Partial<SpaceInfo>;
     if (!space.publicKey || !space.keyId) throw new Error('shared space has no key yet');
     const kid = space.keyId;
     const pub = space.publicKey;
@@ -66,11 +69,12 @@ export async function forwardEvent(env: Bindings, rs: RemoteSpaceRow, ev: Forwar
     if (ev.link !== undefined) payload.link_enc = linkEnc;
     if (ev.body !== undefined) payload.body_enc = bodyEnc;
 
-    const res = await fetch(rs.baseUrl + '/api/remote/ingest', {
+    const res = await fetchRemote(rs.baseUrl + '/api/remote/ingest', {
       method: 'POST',
       headers: { ...authHeaders(rs), 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(FORWARD_TIMEOUT_MS),
+      timeoutMs: FORWARD_TIMEOUT_MS,
+      maxBytes: MAX_REMOTE_RESPONSE_BYTES,
     });
     if (!res.ok) throw new Error('shared space answered ' + res.status + ' on /ingest');
     await recordRemoteOk(env.DB, rs.id, Date.now());
@@ -97,12 +101,13 @@ export interface RemoteProjectsResult {
 export async function listRemoteProjects(env: Bindings, spaces: RemoteSpaceRow[]): Promise<RemoteProjectsResult[]> {
   const settled = await Promise.allSettled(
     spaces.map(async (rs): Promise<RemoteProjectsResult> => {
-      const res = await fetch(rs.baseUrl + '/api/remote/projects', {
+      const res = await fetchRemote(rs.baseUrl + '/api/remote/projects', {
         headers: authHeaders(rs),
-        signal: AbortSignal.timeout(LIST_TIMEOUT_MS),
+        timeoutMs: LIST_TIMEOUT_MS,
+        maxBytes: MAX_REMOTE_RESPONSE_BYTES,
       });
       if (!res.ok) throw new Error('shared space answered ' + res.status);
-      const body = (await res.json()) as Partial<RemoteProjectsResponse>;
+      const body = parseRemoteJson(res.text) as Partial<RemoteProjectsResponse>;
       if (!Array.isArray(body.projects)) throw new Error('unexpected response');
       const projects = body.projects.filter(
         (p): p is ProjectRow => typeof p === 'object' && p !== null && typeof p.id === 'string' && typeof p.name === 'string' && !p.archivedAt,

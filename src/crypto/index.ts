@@ -308,6 +308,28 @@ export async function sha256B64u(input: string): Promise<string> {
   return b64u(d);
 }
 
+/**
+ * Invite claim proof (review 1, finding 1). The invite id travels in the URL path and can leak (logs,
+ * link unfurlers, history); the secret travels only in the fragment. To register with an invite, the
+ * browser must show it knows the secret without revealing it:
+ *   claim     = base64url(SHA-256(utf8("mission-control/invite-claim/v1") || secretBytes))   (sent at registration)
+ *   claimHash = sha256B64u(claim)                                                           (stored at invite creation)
+ * Both are one-way and domain-separated from the HKDF that wraps the key (different construction and
+ * label), so the server, which sees claimHash at creation and claim at registration, still cannot derive
+ * the wrapping key or unwrap the invite.
+ */
+const INVITE_CLAIM_PREFIX = 'mission-control/invite-claim/v1';
+export async function inviteClaimFromSecret(secret: Uint8Array): Promise<string> {
+  if (!(secret instanceof Uint8Array) || secret.length < MIN_SECRET_LEN) {
+    throw new CryptoError('invalid_input', `secret must be at least ${MIN_SECRET_LEN} bytes`);
+  }
+  const prefix = utf8(INVITE_CLAIM_PREFIX);
+  const input = new Uint8Array(prefix.length + secret.length);
+  input.set(prefix, 0);
+  input.set(secret, prefix.length);
+  return b64u(await subtle().digest('SHA-256', input));
+}
+
 /** A random bearer token / cookie value: 32 bytes, base64url (43 chars). */
 export function randomToken(bytes = 32): string {
   return b64u(randomBytes(bytes));

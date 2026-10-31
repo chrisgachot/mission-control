@@ -50,6 +50,8 @@ import {
   publicKeyFromPrivate,
   userKeyKid,
   validateWrappedKey,
+  inviteClaimFromSecret,
+  sha256B64u,
   USER_KID_PREFIX,
   CryptoError,
 } from '../../src/crypto/index.ts';
@@ -222,15 +224,20 @@ function cleanExtensions(ext: unknown, prfProduced: boolean): Record<string, unk
   return out;
 }
 
-async function passkeyRegister(handle: string, inviteId?: string): Promise<RegisterVerifyResponse> {
+/**
+ * Register a passkey. With an invite, `claim` is inviteClaimFromSecret(fragment secret): the proof that we
+ * hold the secret, without revealing it (the server only stores sha256(claim)).
+ */
+async function passkeyRegister(handle: string, invite?: { id: string; claim: string }): Promise<RegisterVerifyResponse> {
+  const inviteFields = invite ? { inviteId: invite.id, inviteClaim: invite.claim } : {};
   const { challengeId, options } = await call<{ challengeId: string; options: PublicKeyCredentialCreationOptionsJSON }>(
     'POST',
     '/api/auth/register/options',
-    inviteId ? { handle, inviteId } : { handle },
+    { handle, ...inviteFields },
   );
   const resp: RegistrationResponseJSON = await startRegistration({ optionsJSON: options });
   const response = { ...resp, clientExtensionResults: cleanExtensions(resp.clientExtensionResults, false) };
-  return call<RegisterVerifyResponse>('POST', '/api/auth/register/verify', inviteId ? { challengeId, handle, inviteId, response } : { challengeId, handle, response });
+  return call<RegisterVerifyResponse>('POST', '/api/auth/register/verify', { challengeId, handle, ...inviteFields, response });
 }
 
 /** Passkey login with PRF evaluation. Returns the server's unlock bundle and the PRF output (or null). */
@@ -554,7 +561,9 @@ class BrowserVault implements Vault {
     if (!currentKid || !priv) throw new VaultError('key_not_available', 'This browser does not hold the current space key.');
     const secret = randomBytes(32);
     const wrapped = await wrapWithSecret('invite', currentKid, priv, secret);
-    const { id } = await call<{ id: string }>('POST', '/api/invites', { wrapped, role });
+    // The server stores only sha256(claim); the invitee later proves the secret by presenting claim.
+    const claimHash = await sha256B64u(await inviteClaimFromSecret(secret));
+    const { id } = await call<{ id: string }>('POST', '/api/invites', { wrapped, claimHash, role });
     // The secret goes only into the fragment, which browsers never send to servers.
     return `${globalThis.location.origin}/invite/${encodeURIComponent(id)}#${b64u(secret)}`;
   }
@@ -570,7 +579,7 @@ class BrowserVault implements Vault {
     const preview = await call<{ valid: boolean }>('GET', `/api/invites/${encodeURIComponent(id)}`);
     if (!preview.valid) throw new VaultError('invite_invalid', 'This invite link is not valid any more. Ask for a new one.');
 
-    const reg = await passkeyRegister(handle, id);
+    const reg = await passkeyRegister(handle, { id, claim: await inviteClaimFromSecret(inviteSecret) });
     let prf: { credentialId: string; secret: Uint8Array } | null = null;
     if (reg.prfEnabled) {
       const { login, prf: out } = await passkeyLogin();

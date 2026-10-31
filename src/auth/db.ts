@@ -126,6 +126,29 @@ export interface NewRegistration {
   session: { idHash: string; expiresAt: number };
   /** Set for invite claims; null for first-run registration. */
   inviteId: string | null;
+  /** sha256B64u(inviteClaim) from the request; required when inviteId is set. */
+  inviteClaimHash: string | null;
+}
+
+/**
+ * THE invite guard (review 1, findings 1, 2, 8). One SQL predicate, used by the registration pre-checks
+ * (options and verify) and inside the registration transaction, so they can never disagree:
+ *   - the caller proved knowledge of the fragment secret: claim_hash matches sha256(inviteClaim);
+ *   - unclaimed;
+ *   - unexpired at the time of THIS request (the verify request's own clock inside the transaction);
+ *   - its creator is still active (removing an admin kills the invites they made);
+ *   - it carries the space's current key, checked in SQL so a rotation that commits between the
+ *     pre-check and the batch still wins.
+ * Binds, in order: inviteId, claimHash, now. The table alias is `i`.
+ */
+const USABLE_INVITE_WHERE =
+  'i.id = ? AND i.claim_hash = ? AND i.claimed_by IS NULL AND i.expires_at > ? ' +
+  'AND EXISTS (SELECT 1 FROM users cu WHERE cu.id = i.created_by AND cu.removed_at IS NULL) ' +
+  'AND i.key_id = (SELECT sk.id FROM space_keys sk WHERE sk.retired_at IS NULL ORDER BY sk.created_at DESC, sk.rowid DESC LIMIT 1)';
+
+/** The invite's role if it is usable right now with this claim proof, else null. */
+export async function findUsableInvite(db: DB, inviteId: string, claimHash: string, now: number): Promise<{ role: string } | null> {
+  return db.prepare(`SELECT i.role AS role FROM invites i WHERE ${USABLE_INVITE_WHERE}`).bind(inviteId, claimHash, now).first<{ role: string }>();
 }
 
 /**
@@ -133,8 +156,9 @@ export interface NewRegistration {
  *
  * First run (inviteId null): the user row is only inserted WHERE NOT EXISTS (SELECT 1 FROM users), so
  * if two people race the empty deployment, exactly one wins.
- * Invite: the user row is only inserted if the invite is still unclaimed and unexpired, and the invite
- * is marked claimed in the same transaction, so an invite can be used once.
+ * Invite: the user row is only inserted if USABLE_INVITE_WHERE holds (claim proof, unclaimed, unexpired,
+ * active creator, current key), with the role read from the invite row, and the invite is marked claimed
+ * in the same transaction, so an invite can be used once and only by someone holding its secret.
  * The credential and session inserts are conditioned on the user row existing, so a lost race leaves
  * nothing behind. Returns true if the user was created.
  */
@@ -148,16 +172,18 @@ export async function registerUser(db: DB, r: NewRegistration): Promise<boolean>
           .bind(r.userId, r.handle, r.role, r.now)
       : db
           .prepare(
-            'INSERT INTO users (id, handle, role, public_key, created_at, removed_at) SELECT ?, ?, ?, NULL, ?, NULL WHERE EXISTS (SELECT 1 FROM invites WHERE id = ? AND claimed_by IS NULL AND expires_at > ?)',
+            `INSERT INTO users (id, handle, role, public_key, created_at, removed_at) SELECT ?, ?, i.role, NULL, ?, NULL FROM invites i WHERE ${USABLE_INVITE_WHERE}`,
           )
-          .bind(r.userId, r.handle, r.role, r.now, r.inviteId, r.now);
+          // The role is taken from the invite row inside the guarded statement, not from the caller.
+          .bind(r.userId, r.handle, r.now, r.inviteId, r.inviteClaimHash ?? '', r.now);
 
   const stmts: D1PreparedStatement[] = [userInsert];
   if (r.inviteId !== null) {
     stmts.push(
       db
-        .prepare('UPDATE invites SET claimed_by = ?, claimed_at = ? WHERE id = ? AND claimed_by IS NULL AND expires_at > ? AND EXISTS (SELECT 1 FROM users WHERE id = ?)')
-        .bind(r.userId, r.now, r.inviteId, r.now, r.userId),
+        // Mark claimed only if the guarded user insert above created our user in this transaction.
+        .prepare('UPDATE invites SET claimed_by = ?, claimed_at = ? WHERE id = ? AND claimed_by IS NULL AND EXISTS (SELECT 1 FROM users WHERE id = ? AND created_at = ?)')
+        .bind(r.userId, r.now, r.inviteId, r.userId, r.now),
     );
   }
   stmts.push(
@@ -367,7 +393,7 @@ export async function rotateKey(
 
 /**
  * Remove a member, atomically: mark removed_at, end their sessions, revoke their member tokens and
- * connector tokens, delete their wrapped keys. Deleting wrapped keys stops the server from handing
+ * connector tokens, delete their wrapped keys, expire the unclaimed invites they created. Deleting wrapped keys stops the server from handing
  * them out again; it does NOT take back keys the member already unwrapped, which is why the admin's
  * browser must rotate the space key right after (the API response says so).
  */
@@ -378,6 +404,9 @@ export async function removeMember(db: DB, userId: string, now: number): Promise
     db.prepare('UPDATE member_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL').bind(now, userId),
     db.prepare('UPDATE connector_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL').bind(now, userId),
     db.prepare('DELETE FROM wrapped_keys WHERE user_id = ?').bind(userId),
+    // Invites this person created and nobody has claimed yet die with them (review 1, finding 2). The
+    // registration guard also requires an active creator, so this is belt and braces.
+    db.prepare('UPDATE invites SET expires_at = ? WHERE created_by = ? AND claimed_by IS NULL AND expires_at > ?').bind(now, userId, now),
   ]);
   return (results[0]?.meta.changes ?? 0) === 1;
 }
@@ -407,11 +436,11 @@ export interface InviteRow {
 
 export async function insertInvite(
   db: DB,
-  i: { id: string; createdBy: string; keyId: string; wrapped: WrappedKey; role: Role; expiresAt: number },
+  i: { id: string; createdBy: string; keyId: string; wrapped: WrappedKey; claimHash: string; role: Role; expiresAt: number },
 ): Promise<void> {
   await db
-    .prepare('INSERT INTO invites (id, created_by, key_id, wrapped_key, role, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(i.id, i.createdBy, i.keyId, JSON.stringify(i.wrapped), i.role, i.expiresAt)
+    .prepare('INSERT INTO invites (id, created_by, key_id, wrapped_key, claim_hash, role, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(i.id, i.createdBy, i.keyId, JSON.stringify(i.wrapped), i.claimHash, i.role, i.expiresAt)
     .run();
 }
 

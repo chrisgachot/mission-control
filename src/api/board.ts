@@ -8,6 +8,8 @@ import type { RemoteSpaceRow } from '../db/spaces.ts';
 import { requireSession } from '../middleware/session.ts';
 import { isRange } from '../status.ts';
 import type { BoardSlice, Range } from '../types.ts';
+// Security track (review 1, finding 6): no redirects, byte-capped body. See src/remote-fetch.ts.
+import { fetchRemote, parseRemoteJson, MAX_REMOTE_BOARD_BYTES } from '../remote-fetch.ts';
 
 export const router = new Hono<AppEnv>();
 
@@ -24,12 +26,13 @@ function isSlice(v: unknown): v is BoardSlice {
 }
 
 async function fetchRemoteSlice(rs: RemoteSpaceRow, range: Range): Promise<BoardSlice> {
-  const res = await fetch(rs.baseUrl + '/api/remote/board?range=' + encodeURIComponent(range), {
+  const res = await fetchRemote(rs.baseUrl + '/api/remote/board?range=' + encodeURIComponent(range), {
     headers: { Authorization: 'Bearer ' + rs.memberToken, Accept: 'application/json' },
-    signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
+    timeoutMs: REMOTE_TIMEOUT_MS,
+    maxBytes: MAX_REMOTE_BOARD_BYTES,
   });
   if (!res.ok) throw new Error('shared space answered ' + res.status);
-  const body: unknown = await res.json();
+  const body: unknown = parseRemoteJson(res.text);
   if (!isSlice(body)) throw new Error('unexpected response from shared space');
   return {
     ...body,

@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS invites (
   created_by TEXT NOT NULL REFERENCES users(id),
   key_id TEXT NOT NULL REFERENCES space_keys(id),
   wrapped_key TEXT NOT NULL,       -- JSON WrappedKey, wrap_kind 'invite'
+  claim_hash TEXT NOT NULL,        -- sha256(claim), claim = SHA-256("mission-control/invite-claim/v1" || secret); proves the registrant holds the fragment secret
   role TEXT NOT NULL DEFAULT 'member',
   expires_at INTEGER NOT NULL,
   claimed_by TEXT REFERENCES users(id),

@@ -10,7 +10,7 @@ import type { AppEnv } from '../env.d.ts';
 import { apiError, readJson, waitUntilOf } from './_http.ts';
 import { buildLocalSlice } from '../db/board.ts';
 import { getProject, listActiveLocalProjects } from '../db/projects.ts';
-import { getSpaceInfo, keyExists } from '../db/spaces.ts';
+import { getSpaceInfo, keyState } from '../db/spaces.ts';
 import { findMemberToken, touchMemberToken } from '../db/tokens.ts';
 import type { TokenOwner } from '../db/tokens.ts';
 import { applyAgentEvent, findAnyByExternalId, insertStarted } from '../db/workstreams.ts';
@@ -88,8 +88,13 @@ router.post('/ingest', async (c) => {
   if (!parsed.ok) return parsed.res;
   const ev = parsed.data;
 
-  if (!(await keyExists(c.env.DB, ev.key_id))) {
+  const kstate = await keyState(c.env.DB, ev.key_id);
+  if (kstate === null) {
     return apiError(c, 400, 'unknown_key', 'key_id is not a key of this space. Fetch /api/remote/space and encrypt again.');
+  }
+  if (kstate === 'retired') {
+    // Security track (review 1, finding 7): new data must use the current key, not one a removed member holds.
+    return apiError(c, 400, 'retired_key', 'key_id has been retired. Fetch /api/remote/space and encrypt again.');
   }
   for (const text of [ev.title_enc, ev.link_enc, ev.body_enc]) {
     if (text && !looksLikeEnvelope(text, ev.key_id)) {

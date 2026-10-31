@@ -2,6 +2,79 @@
 
 Newest first. Mark uncertainty with ?.
 
+## 2026-10-31 — fixes for review 1 (docs/review/security-review-1.md): findings 1, 2, 6, 7, 8
+
+Findings 3, 4, 5, 9 and the info items are left as open issues, as the coordinator asked.
+
+### What changed
+
+**Finding 1 (high): an invite id alone no longer registers.**
+- The inviter's browser derives `claim = b64u(SHA-256(utf8("mission-control/invite-claim/v1") || secretBytes))` and sends `claimHash = sha256B64u(claim)` with `POST /api/invites` (now a required field). The server never sees the claim or the secret at creation.
+- `register/options` and `register/verify` with an `inviteId` must also carry `inviteClaim`. One without the other is 400. The server hashes the claim and checks it inside one SQL guard (`USABLE_INVITE_WHERE` in `src/auth/db.ts`).
+- That guard runs in the options pre-check, the verify pre-check, and the conditional user `INSERT` inside the registration batch. It also covers findings 2 and 8.
+- A wrong claim, an unknown id and a used invite all give the same 403 `invite_invalid`.
+- The new user's role is now read from the invite row inside the guarded `INSERT`, not passed in.
+- The claim is a one-way, domain-separated derivation of the secret, separate from the HKDF that wraps the key. So the server still cannot unwrap the invite key.
+- Crypto helper: `inviteClaimFromSecret(secret)` in `src/crypto/index.ts`.
+- `web/src/vault.ts`: `createInvite` sends `claimHash`; `claimInvite(id, secretB64u, handle)` derives the claim from the fragment secret and sends it with both registration calls. The dashboard needs no change.
+- `migrations/0001_init.sql`: `invites.claim_hash TEXT NOT NULL`, edited in place as instructed.
+
+**Finding 2: a removed member's invites die with them.**
+- The `removeMember` batch now also expires that user's unclaimed invites (`created_by = ?`).
+- The registration guard requires the invite's creator to be active (`removed_at IS NULL`).
+- The public preview `GET /api/invites/:id` also reports `valid: false` when the creator was removed, so it agrees with the guard.
+
+**Finding 8: the registration guard uses the verify request's clock and checks the current key in SQL.**
+- The guard compares `expires_at` with the verify request's `now`, and requires `i.key_id` to equal the newest non-retired key inside the statement.
+- So a rotation that commits between the pre-check and the batch wins, and the registration inserts nothing.
+- The `UPDATE invites SET claimed_by` now only fires if the guarded insert created our user in this transaction.
+
+**Finding 6: Worker-to-Worker fetches no longer follow redirects and have a byte cap.**
+- New file `src/remote-fetch.ts` (Security-owned) with `fetchRemote` and `parseRemoteJson`:
+  - `redirect: 'manual'`, and any 3xx throws `shared space answered 3xx (redirect, not followed)`.
+  - A Content-Length over the cap is refused before reading. Otherwise the body is read as a stream and counted in bytes, and the read is cancelled once over the cap.
+  - JSON parse errors get a fixed message, so the body is never echoed into `last_error` or logs.
+- **Connector-track files, minimal call-site changes only:**
+  - `src/forward.ts`: the `/space`, `/ingest` and `/projects` fetches now use `fetchRemote` with the 64 KiB cap.
+  - `src/api/board.ts`: the `/board` fetch now uses `fetchRemote`.
+  - Error messages keep the `shared space answered …` / `unexpected response …` prefixes that `describeFailure` shows.
+- My own `src/api/remote-spaces.ts` uses the helper too. That also fixes the review's info point that `text.length` counted UTF-16 units, not bytes.
+- **Deviation, flagged:** the coordinator asked for "the same response byte cap as remote-spaces.ts" (64 KiB) everywhere. I kept 64 KiB for `/space`, `/projects` and `/ingest`. The `/board` response uses `MAX_REMOTE_BOARD_BYTES = 4 MiB`, because a board slice carries every workstream plus a range of updates at about 250 bytes per envelope. A modest 30-day board passes 64 KiB at roughly 50 workstreams or 140 updates, and would then show as a failed remote slice. 4 MiB still bounds memory. If 64 KiB is wanted anyway, it is one constant. ?
+
+**Finding 7: `/api/remote/ingest` rejects retired keys.**
+- **Connector-track files, minimal change:** `src/db/spaces.ts` gains `keyState(db, id)`, which returns `'live' | 'retired' | null`. `src/api/remote.ts` ingest now returns 400 `retired_key` for a retired kid and keeps 400 `unknown_key` for an unknown one.
+- `keyExists` is unchanged and no longer used by `remote.ts`.
+
+### Verification
+- `npx tsc --noEmit`: clean. (The earlier `web/src/connect.ts` / `vault-types.ts` mismatch has been reconciled by its owner.)
+- `npx vitest run`: 8 files, **97/97 pass**. No existing test encoded the old invite behaviour, so none needed updating.
+- `/tmp/sec-e2e/run.ts` (the real app on local D1): **84/84 pass**. New checks:
+  - invite creation without `claimHash` is 400, and the server stores only the hash;
+  - options with the id alone is 400, and with a wrong claim is 403 `invite_invalid`;
+  - verify with a wrong claim is 403 `invite_invalid`, before WebAuthn runs;
+  - verify with the right claim passes the guard and fails only on the fake WebAuthn response;
+  - the registration batch inserts nothing with no claim or a wrong claim, and registers with the right one; the role comes from the invite row;
+  - ingest under a retired key is 400 `retired_key`, and under the current key is 200;
+  - a removed admin's unclaimed invite is expired, and options with it is 403;
+  - with that invite's expiry restored by hand, the batch still refuses because the creator is removed.
+- `/tmp/sec-e2e/fetch.ts`:
+  - a 302 is a failure and the target is not contacted;
+  - a Content-Length over the cap is refused, and a streamed body over the cap (counted in bytes) is refused;
+  - a 60 KB multibyte body under 64 KiB is accepted.
+  - Finding 8 race: after a key is retired between the pre-check and the batch, registration inserts nothing and the invite stays unclaimed.
+  - These ran under Node's fetch, not workerd. workerd also returns the 3xx for `redirect: 'manual'`, but that path is not exercised in workerd. ?
+- Vault probe: 22/22 still pass, and the browser bundle still builds.
+
+### API changes for other tracks
+- `POST /api/invites` body: `{ wrapped, claimHash, role? }`. `claimHash` is required.
+- `POST /api/auth/register/options` and `/register/verify`: `inviteClaim` is required whenever `inviteId` is sent.
+- Both are handled inside `vault.ts`; the Dashboard calls are unchanged.
+- `/api/remote/ingest` can now answer 400 `retired_key`.
+
+### Corrections to the earlier notes below
+- Decision 24 / the invites header said an invite id alone could register. That is no longer true (finding 1).
+- Decision 26: the remote-spaces size check now counts bytes, through `fetchRemote`.
+
 ## 2026-10-31 — first full implementation (Opus, Security track)
 
 ### Files

@@ -1,8 +1,8 @@
 /**
  * /api/auth/* (Security track). Contract: docs/ARCHITECTURE.md §3 "Passkeys and unlock", §7.
  *
- *   POST /register/options  { handle, inviteId? }               -> { challengeId, options }
- *   POST /register/verify   { challengeId, handle, inviteId?, response } -> { user, prfEnabled, credentialId } + cookie
+ *   POST /register/options  { handle, inviteId?, inviteClaim? }  -> { challengeId, options }
+ *   POST /register/verify   { challengeId, handle, inviteId?, inviteClaim?, response } -> { user, prfEnabled, credentialId } + cookie
  *   POST /login/options     {}                                  -> { challengeId, options }
  *   POST /login/verify      { challengeId, response }           -> { user, prfEnabled, credentialId, wrapped } + cookie
  *   POST /logout            {}                                  -> { ok: true }
@@ -11,8 +11,10 @@
  * Who may register:
  *   (a) anyone, only while the users table is empty: the first person on a fresh deployment becomes
  *       'owner' (SPACE_KIND personal) or 'admin' (shared). Enforced atomically in SQL at verify time.
- *   (b) on a shared space, the holder of a valid invite id (unclaimed, unexpired, for the current key);
- *       role comes from the invite. The invite is claimed in the same transaction that creates the user.
+ *   (b) on a shared space, the holder of a valid invite: the id AND the claim proof derived from the
+ *       fragment secret (inviteClaim; the id alone leaks via logs and link previews and is not enough).
+ *       The invite must be unclaimed, unexpired, made by a still-active member, and on the current key.
+ *       Role comes from the invite row. The invite is claimed in the same transaction that creates the user.
  * Challenges are single-use (deleted on first verify attempt, success or not) and expire after 5 minutes.
  */
 import { Hono } from 'hono';
@@ -22,8 +24,7 @@ import type { Role, WrappedKey } from '../types.ts';
 import type { RegistrationResponseJSON, AuthenticationResponseJSON } from '@simplewebauthn/server';
 import {
   countUsers,
-  getInvite,
-  getCurrentSpaceKey,
+  findUsableInvite,
   insertChallenge,
   consumeChallenge,
   purgeExpiredChallenges,
@@ -32,12 +33,11 @@ import {
   getActiveUser,
   updateCredentialAfterLogin,
   listWrappedForUser,
-  type InviteRow,
 } from '../auth/db.ts';
 import { relyingParty, registrationOptions, verifyRegistration, authenticationOptions, verifyLogin, CHALLENGE_TTL_MS } from '../auth/webauthn.ts';
 import { newSessionValue, setSessionCookie, startSession, endSession } from '../auth/sessions.ts';
 import { fail, parseBody, logEvent, handleSchema, credentialIdSchema } from '../auth/http.ts';
-import { validateWrappedKey } from '../crypto/index.ts';
+import { sha256B64u, validateWrappedKey } from '../crypto/index.ts';
 
 export const router = new Hono<AppEnv>();
 
@@ -51,17 +51,28 @@ const webauthnResponseSchema = z.looseObject({
 });
 
 const inviteIdSchema = z.uuid();
+/** inviteClaim = base64url(SHA-256(...)), always 43 chars (see inviteClaimFromSecret in src/crypto). */
+const inviteClaimSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+
+/** Registration with an invite needs both the id and the claim proof; one without the other is a 400. */
+const inviteFields = {
+  inviteId: inviteIdSchema.optional(),
+  inviteClaim: inviteClaimSchema.optional(),
+};
+function inviteFieldsConsistent(d: { inviteId?: string | undefined; inviteClaim?: string | undefined }): boolean {
+  return (d.inviteId === undefined) === (d.inviteClaim === undefined);
+}
 
 /**
- * An invite usable for registration: exists, unclaimed, unexpired, wraps the space's current key, on a
- * shared space, with a role we accept. Returns the role or null.
+ * The role an invite grants, if registering with it is allowed right now: shared space only, and the
+ * SQL guard in findUsableInvite (claim proof, unclaimed, unexpired at `now`, active creator, current key).
+ * Returns null otherwise. A wrong claim, an unknown id and a used invite all look the same to the caller.
  */
-async function usableInviteRole(env: AppEnv['Bindings'], invite: InviteRow | null, now: number): Promise<Role | null> {
-  if (!invite || env.SPACE_KIND !== 'shared') return null;
-  if (invite.claimed_by !== null || invite.expires_at <= now) return null;
-  const current = await getCurrentSpaceKey(env.DB);
-  if (!current || current.id !== invite.key_id) return null;
-  return invite.role === 'member' || invite.role === 'admin' ? invite.role : null;
+async function usableInviteRole(env: AppEnv['Bindings'], inviteId: string, inviteClaim: string, now: number): Promise<Role | null> {
+  if (env.SPACE_KIND !== 'shared') return null;
+  const inv = await findUsableInvite(env.DB, inviteId, await sha256B64u(inviteClaim), now);
+  if (!inv) return null;
+  return inv.role === 'member' || inv.role === 'admin' ? inv.role : null;
 }
 
 function firstUserRole(env: AppEnv['Bindings']): Role {
@@ -71,14 +82,15 @@ function firstUserRole(env: AppEnv['Bindings']): Role {
 // ------------------------------------------------------------------ registration
 
 router.post('/register/options', async (c) => {
-  const body = await parseBody(c, z.object({ handle: handleSchema, inviteId: inviteIdSchema.optional() }));
+  const body = await parseBody(c, z.object({ handle: handleSchema, ...inviteFields }));
   if (!body.ok) return body.res;
+  if (!inviteFieldsConsistent(body.data)) return fail(c, 400, 'bad_request', 'inviteId and inviteClaim go together.');
   const db = c.env.DB;
   const now = Date.now();
   await purgeExpiredChallenges(db, now);
 
-  if (body.data.inviteId) {
-    const role = await usableInviteRole(c.env, await getInvite(db, body.data.inviteId), now);
+  if (body.data.inviteId && body.data.inviteClaim) {
+    const role = await usableInviteRole(c.env, body.data.inviteId, body.data.inviteClaim, now);
     if (!role) return fail(c, 403, 'invite_invalid', 'This invite link is not valid any more. Ask for a new one.');
   } else if ((await countUsers(db)) > 0) {
     return fail(c, 403, 'registration_closed', 'This space already has an owner. Use your passkey to unlock, or ask for an invite.');
@@ -95,9 +107,10 @@ router.post('/register/options', async (c) => {
 router.post('/register/verify', async (c) => {
   const body = await parseBody(
     c,
-    z.object({ challengeId: z.uuid(), handle: handleSchema, inviteId: inviteIdSchema.optional(), response: webauthnResponseSchema }),
+    z.object({ challengeId: z.uuid(), handle: handleSchema, ...inviteFields, response: webauthnResponseSchema }),
   );
   if (!body.ok) return body.res;
+  if (!inviteFieldsConsistent(body.data)) return fail(c, 400, 'bad_request', 'inviteId and inviteClaim go together.');
   const db = c.env.DB;
   const now = Date.now();
 
@@ -108,9 +121,11 @@ router.post('/register/verify', async (c) => {
   }
 
   const inviteId = body.data.inviteId ?? null;
+  const inviteClaimHash = body.data.inviteClaim ? await sha256B64u(body.data.inviteClaim) : null;
   let role: Role;
-  if (inviteId) {
-    const r = await usableInviteRole(c.env, await getInvite(db, inviteId), now);
+  if (inviteId && body.data.inviteClaim) {
+    // `now` is this verify request's clock; the same guard runs again inside the registration batch.
+    const r = await usableInviteRole(c.env, inviteId, body.data.inviteClaim, now);
     if (!r) return fail(c, 403, 'invite_invalid', 'This invite link is not valid any more. Ask for a new one.');
     role = r;
   } else {
@@ -140,6 +155,7 @@ router.post('/register/verify', async (c) => {
       credential: { id: verified.credentialId, publicKey: verified.publicKey, counter: verified.counter, transports: verified.transports, prfSupported: verified.prfSupported },
       session: { idHash: session.idHash, expiresAt: session.expiresAt },
       inviteId,
+      inviteClaimHash,
     });
   } catch {
     // Most likely a duplicate credential id (UNIQUE/PK). The batch rolled back as a whole.

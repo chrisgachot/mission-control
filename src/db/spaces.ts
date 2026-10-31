@@ -82,6 +82,16 @@ export async function getCurrentKey(db: D1Database): Promise<CurrentKey | null> 
   return row ? { id: row.id, publicKey: row.public_key } : null;
 }
 
+/**
+ * 'live' | 'retired' for a key of this space, null if unknown. (Security track, review 1 finding 7:
+ * ingest must not accept new data under a retired key, which a removed member may still hold.)
+ */
+export async function keyState(db: D1Database, id: string): Promise<'live' | 'retired' | null> {
+  const row = await db.prepare('SELECT retired_at FROM space_keys WHERE id = ?1').bind(id).first<{ retired_at: number | null }>();
+  if (!row) return null;
+  return row.retired_at === null ? 'live' : 'retired';
+}
+
 export async function keyExists(db: D1Database, id: string): Promise<boolean> {
   const row = await db.prepare('SELECT 1 AS ok FROM space_keys WHERE id = ?1').bind(id).first<{ ok: number }>();
   return row != null;

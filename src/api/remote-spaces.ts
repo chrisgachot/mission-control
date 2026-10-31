@@ -33,13 +33,13 @@ import {
 import { fail, parseBody, logEvent } from '../auth/http.ts';
 import { isLocalHostname } from '../auth/sessions.ts';
 import { isValidPublicKey } from '../crypto/index.ts';
+import { fetchRemote, parseRemoteJson, MAX_REMOTE_RESPONSE_BYTES } from '../remote-fetch.ts';
 
 export const router = new Hono<AppEnv>();
 
 router.use('*', requireRole(['owner']));
 
 const VERIFY_TIMEOUT_MS = 4000;
-const MAX_REMOTE_RESPONSE_BYTES = 64 * 1024;
 
 function toApi(r: RemoteSpaceRow) {
   return { id: r.id, name: r.name, baseUrl: r.base_url, createdAt: r.created_at, lastSyncAt: r.last_sync_at, lastError: r.last_error };
@@ -92,17 +92,15 @@ router.post('/', async (c) => {
   // Verify the token against the shared space before storing anything.
   let space: SpaceInfo;
   try {
-    const res = await fetch(`${baseUrl}/api/remote/space`, {
-      method: 'GET',
+    // fetchRemote: no redirects (a 3xx throws), body capped in bytes while streaming.
+    const res = await fetchRemote(`${baseUrl}/api/remote/space`, {
       headers: { Authorization: `Bearer ${body.data.memberToken}`, Accept: 'application/json' },
-      redirect: 'manual',
-      signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
+      timeoutMs: VERIFY_TIMEOUT_MS,
+      maxBytes: MAX_REMOTE_RESPONSE_BYTES,
     });
     if (res.status === 401 || res.status === 403) return fail(c, 400, 'remote_rejected', 'The shared space did not accept that member token.');
     if (res.status !== 200) return fail(c, 502, 'remote_unreachable', `The shared space answered ${res.status}.`);
-    const text = await res.text();
-    if (text.length > MAX_REMOTE_RESPONSE_BYTES) return fail(c, 502, 'remote_bad_response', 'The shared space sent an unexpected response.');
-    const parsed = spaceInfoSchema.safeParse(JSON.parse(text));
+    const parsed = spaceInfoSchema.safeParse(parseRemoteJson(res.text));
     if (!parsed.success) return fail(c, 502, 'remote_bad_response', 'That address is not a shared Mission Control space.');
     if (parsed.data.publicKey !== null && !(await isValidPublicKey(parsed.data.publicKey))) {
       return fail(c, 502, 'remote_bad_response', 'The shared space sent an invalid key.');
