@@ -4,6 +4,7 @@ Newest first. One line per event. Uncertainty is marked `?`. Each track's own no
 
 | When (UTC) | What |
 | --- | --- |
+| 2026-11-02 08:30 | First real deploy (Chris, via "Clone a public repository via Git URL" in the Cloudflare dashboard): build and deploy commands were pre-filled from package.json, the D1 database was created and bound, vars were prompted for, migrations ran, `/api/health` reports db ok, passkey created, connector link issued. Not yet checked: whether the created repo carries a real `database_id` and shares history with upstream (affects release sync). |
 | 2026-10-31 21:40 | Security fixes from the review applied and verified in the browser on a fresh shared-space database: invite id alone is refused (page, options 403, verify), full link registers a member with recovery code and connect link, link is single-use. Also: removed admins' invites expire, remote fetches refuse redirects and cap bodies, ingest rejects retired keys, registration checks the current key in SQL. 97 tests pass. |
 | 2026-10-31 21:20 | Independent security review (Opus) delivered: `docs/review/security-review-1.md`. One high (invite id alone could join), three medium, several low. Crypto, PRF handling, sessions, CSRF, rotation guards found correct. |
 | 2026-10-31 21:05 | Browser end-to-end on a fresh database: first-run passkey registration with PRF (Chromium virtual authenticator), recovery code shown, PRF-wrapped keys stored, reload then passkey unlock succeeds, device without the passkey fails cleanly to the recovery path. Screens in `docs/screens/e2e-*.png`. |
@@ -26,7 +27,7 @@ Newest first. One line per event. Uncertainty is marked `?`. Each track's own no
 
 ## Not verified (needs a real deploy)
 
-- Deploy to Cloudflare button end to end, including whether the button commits the database id into the fork (which would break fast-forward release sync; `SYNC_ALLOW_MERGE=true` is the fallback). See `docs/progress/deploy.md`.
+- Release sync into a button-created copy, including whether the button commits the database id into the fork (which would break fast-forward release sync; `SYNC_ALLOW_MERGE=true` is the fallback). See `docs/progress/deploy.md`.
 - Two real Workers forwarding to each other (shared space). Only a loopback test was run.
 - Duet and ChatGPT actually calling the connector. Cowork should work via the account's connectors.
 - GitHub Actions (sync and health check) have not run on GitHub.
